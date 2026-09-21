@@ -18,7 +18,8 @@
 #  Usage (on the server, as the ubuntu user):
 #    chmod +x setup-lightsail.sh
 #    sudo ./setup-lightsail.sh            # first install
-#    sudo ./setup-lightsail.sh update     # pull new code / new zip, rebuild, restart
+#    sudo ./setup-lightsail.sh update [app]   # new zip / git pull, rebuild, restart
+#  Run it once per app to host PitchEdge and EdgeBoard on the same server (different domains).
 # =============================================================================
 set -Eeuo pipefail
 
@@ -45,18 +46,28 @@ rand() { openssl rand -hex "${1:-24}"; }
 APP_USER="ubuntu"
 id "$APP_USER" >/dev/null 2>&1 || die "User '$APP_USER' not found (Lightsail Ubuntu images use 'ubuntu')."
 MODE="${1:-install}"
-STATE_FILE="/etc/edge-setup.conf"
+state_file() { echo "/etc/edge-setup-$1.conf"; }
 
 # =============================================================================
 #  UPDATE MODE — rebuild from new code without touching SSL / DB / nginx
 # =============================================================================
 if [[ "$MODE" == "update" ]]; then
-  [[ -f "$STATE_FILE" ]] || die "No previous install found ($STATE_FILE). Run without 'update' first."
+  INSTALLED=$(ls /etc/edge-setup-*.conf 2>/dev/null | sed 's#.*/edge-setup-##; s#\.conf$##' | tr '\n' ' ' || true)
+  [[ -n "$INSTALLED" ]] || die "No previous install found. Run without 'update' first."
+  ask APP_NAME "Which app to update? (installed: $INSTALLED)" "${2:-$(echo "$INSTALLED" | awk '{print $1}')}"
+  STATE_FILE=$(state_file "$APP_NAME")
+  [[ -f "$STATE_FILE" ]] || die "No install found for '$APP_NAME'."
   # shellcheck disable=SC1090
   . "$STATE_FILE"
   say "Updating $APP_NAME in $APP_DIR"
   if [[ -d "$APP_DIR/.git" ]]; then
     sudo -u "$APP_USER" git -C "$APP_DIR" pull --ff-only
+  elif [[ -f "$APP_DIR/.deploy-source" && -d "$(cat "$APP_DIR/.deploy-source")" ]]; then
+    SRC=$(cat "$APP_DIR/.deploy-source")
+    say "Syncing from $SRC"
+    [[ -d "$SRC/.git" ]] && sudo -u "$APP_USER" git -C "$SRC" pull --ff-only || true
+    rsync -a --delete --exclude ".env" --exclude "node_modules" --exclude ".next" --exclude ".git" --exclude ".deploy-source" "$SRC"/ "$APP_DIR"/
+    echo "$SRC" > "$APP_DIR/.deploy-source"; chown -R "$APP_USER:$APP_USER" "$APP_DIR"
   else
     ask ZIP "Path to the new project zip" "$(ls -t /home/$APP_USER/*.zip 2>/dev/null | head -1 || true)"
     [[ -f "$ZIP" ]] || die "Zip not found: $ZIP"
@@ -84,10 +95,17 @@ ask EMAIL "Admin e-mail for SSL expiry notices (Let's Encrypt)" ""
 [[ "$EMAIL" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || die "Invalid e-mail: $EMAIL"
 
 ask APP_NAME "App name (edgeboard or pitchedge)" "edgeboard"
-APP_NAME="${APP_NAME,,}"; APP_DIR="/var/www/$APP_NAME"
-DEFAULT_ZIP=$(ls -t /home/$APP_USER/${APP_NAME}*.zip 2>/dev/null | head -1 || true)
-ask SOURCE "App source: path to the project .zip OR a git URL" "$DEFAULT_ZIP"
-[[ -n "$SOURCE" ]] || die "No source given. Upload the zip to /home/$APP_USER first (scp / Lightsail browser SSH upload)."
+APP_NAME=$(echo "${APP_NAME,,}" | tr -cs 'a-z0-9' '-' | sed 's/^-*//; s/-*$//')
+[[ "$APP_NAME" =~ ^[a-z] ]] || APP_NAME="app-$APP_NAME"
+echo "  → app name: $APP_NAME"
+APP_DIR="/var/www/$APP_NAME"; STATE_FILE=$(state_file "$APP_NAME")
+[[ "$APP_NAME" =~ ^[a-z][a-z0-9-]*$ ]] || die "App name must be lowercase letters, numbers or dashes."
+DEFAULT_SRC=""
+if [[ -f "$PWD/package.json" && -f "$PWD/prisma/schema.prisma" ]]; then DEFAULT_SRC="$PWD"
+else DEFAULT_SRC=$(ls -t /home/$APP_USER/*.zip 2>/dev/null | head -1 || true); fi
+ask SOURCE "App source: project FOLDER (e.g. a cloned repo), .zip file, or git URL" "$DEFAULT_SRC"
+[[ -n "$SOURCE" ]] || die "No source given. Run this from inside your cloned repo, or give the folder / zip path."
+SOURCE="${SOURCE/#\~/$(eval echo ~$APP_USER)}"
 
 echo
 echo "Cloudflare API token (optional, recommended). Create it at dash.cloudflare.com → My Profile →"
@@ -97,9 +115,18 @@ ask CF_TOKEN "Cloudflare API token" "" secret
 ask API_KEY "API-Sports key (blank = demo mode; you can add it later in Settings)" "" secret
 ask PIN "Settings PIN (numbers, 6+ digits)" "$(shuf -i 100000-999999 -n 1)"
 ask SEED "Load demo data now? (y/n)" "y"
-ask PORT "Internal app port" "3000"
+SUGGEST_PORT=3000
+if [[ -f "$STATE_FILE" ]]; then SUGGEST_PORT=$(. "$STATE_FILE"; echo "$PORT")
+else while ss -ltn | grep -q ":$SUGGEST_PORT " || grep -qs "^PORT=$SUGGEST_PORT$" /etc/edge-setup-*.conf; do SUGGEST_PORT=$((SUGGEST_PORT+1)); done; fi
+ask PORT "Internal app port (each app on this server needs its own)" "$SUGGEST_PORT"
 
 WWW_ON=false; [[ "${WWW,,}" == "y" ]] && WWW_ON=true
+if $WWW_ON && [[ $(echo "$DOMAIN" | tr -cd '.' | wc -c) -ge 2 ]]; then
+  warn "www.$DOMAIN is a second-level subdomain. Cloudflare's free SSL does NOT cover it when proxied (orange cloud),"
+  warn "so visitors would see a certificate error there. Recommended: answer n."
+  ask WWW "Serve www.$DOMAIN anyway? (y/n)" "n"
+  [[ "${WWW,,}" == "y" ]] || WWW_ON=false
+fi
 NAMES="$DOMAIN"; $WWW_ON && NAMES="$DOMAIN www.$DOMAIN"
 
 echo
@@ -182,6 +209,11 @@ say "Deploying application code to $APP_DIR"
 mkdir -p "$APP_DIR"
 if [[ "$SOURCE" =~ ^(https?|git@) ]]; then
   if [[ -d "$APP_DIR/.git" ]]; then git -C "$APP_DIR" pull --ff-only; else rm -rf "$APP_DIR"; git clone "$SOURCE" "$APP_DIR"; fi
+elif [[ -d "$SOURCE" ]]; then
+  SRC=$(dirname "$(find "$SOURCE" -maxdepth 3 -name package.json -not -path '*/node_modules/*' | awk '{ print length, $0 }' | sort -n | head -1 | cut -d' ' -f2-)")
+  [[ -f "$SRC/package.json" && -f "$SRC/prisma/schema.prisma" ]] || die "No app (package.json + prisma/schema.prisma) found in $SOURCE"
+  [[ "$(realpath "$SRC")" == "$(realpath "$APP_DIR")" ]] || rsync -a --delete --exclude ".env" --exclude "node_modules" --exclude ".next" --exclude ".git" "$SRC"/ "$APP_DIR"/
+  echo "$SRC" > "$APP_DIR/.deploy-source"
 else
   [[ -f "$SOURCE" ]] || die "File not found: $SOURCE"
   TMP=$(mktemp -d); unzip -q "$SOURCE" -d "$TMP"
@@ -480,7 +512,7 @@ cat <<INFO
   App directory ....... $APP_DIR
   Service ............. sudo systemctl status $APP_NAME     logs: journalctl -u $APP_NAME -f
   Cron jobs ........... $CRON_FILE   log: /var/log/$APP_NAME-cron.log
-  Update later ........ sudo ./setup-lightsail.sh update
+  Update later ........ sudo ./setup-lightsail.sh update $APP_NAME
 
   Cloudflare checklist
    1. DNS: A record $DOMAIN → ${SERVER_IP:-your Lightsail static IP}  (attach a STATIC IP in Lightsail first)
