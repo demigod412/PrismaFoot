@@ -1,0 +1,255 @@
+// PitchEdge — Prisma schema (Phase 0–3 ready)
+// Rules encoded here:
+//  * Predictions are append-only. A lineup revision inserts a new row (revision + 1).
+//  * A locked prediction (lockedAt != null) is never updated by application code.
+//  * Results are append-only; a correction inserts a new Result row with supersedesId.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Provider {
+  DEMO
+  FOOTBALL_DATA
+  API_FOOTBALL
+  SPORTMONKS
+}
+
+enum FixtureStatus {
+  SCHEDULED
+  LIVE
+  FINISHED
+  POSTPONED
+  CANCELLED
+}
+
+enum ConfidenceBand {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+model League {
+  id          String   @id @default(cuid())
+  provider    Provider
+  externalId  String
+  name        String
+  country     String
+  code        String?
+  season      Int
+  tier        Int      @default(1)
+  focusGroup  String?  // "europe-strong" | "england" | null
+  // Per-league model parameters (refit on every rating run)
+  homeAdv     Float    @default(1.25) // γ_league
+  rho         Float    @default(-0.08) // Dixon–Coles ρ
+  baseGoals   Float    @default(1.35) // mean away goals, neutral scale
+  volatility  Float    @default(0.5)  // 0..1, from residual variance of goal totals
+  lastSyncAt  DateTime?
+  teams       Team[]
+  fixtures    Fixture[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([provider, externalId, season])
+  @@index([focusGroup])
+}
+
+model Team {
+  id          String   @id @default(cuid())
+  provider    Provider
+  externalId  String
+  name        String
+  shortName   String?
+  crestUrl    String?
+  leagueId    String
+  league      League   @relation(fields: [leagueId], references: [id])
+  homeFixtures Fixture[] @relation("home")
+  awayFixtures Fixture[] @relation("away")
+  ratings     TeamRatingSnapshot[]
+
+  @@unique([provider, externalId, leagueId])
+}
+
+model Fixture {
+  id           String        @id @default(cuid())
+  provider     Provider
+  externalId   String
+  leagueId     String
+  league       League        @relation(fields: [leagueId], references: [id])
+  season       Int
+  round        String?
+  kickoffUtc   DateTime
+  status       FixtureStatus @default(SCHEDULED)
+  homeTeamId   String
+  awayTeamId   String
+  homeTeam     Team          @relation("home", fields: [homeTeamId], references: [id])
+  awayTeam     Team          @relation("away", fields: [awayTeamId], references: [id])
+  homeGoals    Int?          // FT score mirror for fast queries; Result is the ledger
+  awayGoals    Int?
+  homeXg       Float?
+  awayXg       Float?
+  homeShots    Int?
+  awayShots    Int?
+  venue        String?
+  predictions  Prediction[]
+  results      Result[]
+  updatedAt    DateTime      @updatedAt
+  createdAt    DateTime      @default(now())
+
+  @@unique([provider, externalId])
+  @@index([kickoffUtc])
+  @@index([leagueId, kickoffUtc])
+  @@index([status, kickoffUtc])
+}
+
+model TeamRatingSnapshot {
+  id           String   @id @default(cuid())
+  teamId       String
+  team         Team     @relation(fields: [teamId], references: [id])
+  asOf         DateTime
+  modelVersion String
+  inputKind    String   // "xg" | "shots" | "goals"
+  attack       Float    // α
+  defence      Float    // β (multiplier on opponent scoring; >1 = leaky)
+  sampleWeight Float    // Σw of matches used (effective sample)
+  matches      Int
+  createdAt    DateTime @default(now())
+
+  @@index([teamId, asOf])
+}
+
+model Prediction {
+  id            String   @id @default(cuid())
+  fixtureId     String
+  fixture       Fixture  @relation(fields: [fixtureId], references: [id])
+  modelVersion  String   @default("dc-xg-cal-v1")
+  revision      Int      @default(1)
+  generatedAt   DateTime @default(now())
+  lockedAt      DateTime?
+  inputsHash    String
+
+  // Expected goals + DC
+  lambdaHome    Float
+  lambdaAway    Float
+  rho           Float
+
+  // Raw (matrix) probabilities
+  rawHome       Float
+  rawDraw       Float
+  rawAway       Float
+  rawOver15     Float
+  rawOver25     Float
+  rawOver35     Float
+  rawOver45     Float
+  rawBtts       Float
+
+  // Calibrated (what the UI shows)
+  calHome       Float
+  calDraw       Float
+  calAway       Float
+  calOver15     Float
+  calOver25     Float
+  calOver35     Float
+  calOver45     Float
+  // Unders are complements of the calibrated overs: under_x = 1 − over_x (lines 2.5 / 3.5 / 4.5).
+  calBtts       Float
+  calibrationId String?
+
+  predHomeGoals Int
+  predAwayGoals Int
+  topScorelines Json     // [{h,a,p}] × 5
+  matrix        Json     // 11×11 truncated matrix for heatmap (rows = home goals)
+
+  confidence    Int      // 0..100
+  band          ConfidenceBand
+  dataFlags     String[]
+  rationale     Json     // string[4], generated from features
+  features      Json     // the structured features the rationale was built from
+
+  @@unique([fixtureId, modelVersion, revision])
+  @@index([fixtureId, generatedAt])
+  @@index([lockedAt])
+}
+
+model Result {
+  id           String   @id @default(cuid())
+  fixtureId    String
+  fixture      Fixture  @relation(fields: [fixtureId], references: [id])
+  homeGoals    Int
+  awayGoals    Int
+  settledAt    DateTime @default(now())
+  source       Provider
+  supersedesId String?  // correction chain; never delete
+
+  @@index([fixtureId, settledAt])
+}
+
+model CalibrationModel {
+  id           String   @id @default(cuid())
+  modelVersion String
+  market       String   // "1x2_home" | "1x2_draw" | "1x2_away" | "ou25" | "ou15" | "ou35" | "ou45" | "btts"
+  method       String   // "identity" | "bucket" | "isotonic"
+  n            Int
+  // piecewise-linear map: sorted [x, y] knots
+  knots        Json
+  fittedAt     DateTime @default(now())
+  active       Boolean  @default(true)
+
+  @@index([modelVersion, market, active])
+}
+
+model AccuracyDaily {
+  id              String   @id @default(cuid())
+  date            DateTime @db.Date
+  modelVersion    String
+  scope           String   @default("all") // "all" | leagueId
+  n               Int
+  brier1x2        Float
+  logloss1x2      Float
+  hit1x2          Float
+  hitOu25         Float
+  hitBtts         Float
+  byBand          Json     // { HIGH: {n, brier, hit}, MEDIUM: ..., LOW: ... }
+  baselineHome    Json     // { brier, logloss, hit }
+  baselineTable   Json
+  baselineMarket  Json?    // de-vigged closing odds, when an odds feed exists
+  createdAt       DateTime @default(now())
+
+  @@unique([date, modelVersion, scope])
+}
+
+model Slip {
+  id         String   @id @default(cuid())
+  ownerKey   String   // anonymous device key (no accounts in v1)
+  name       String   @default("My slip")
+  legs       Json     // [{fixtureId, market, selection, p, band}]
+  bookie     String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([ownerKey])
+}
+
+model AppSetting {
+  key        String   @id
+  value      String   // JSON; secrets stored AES-256-GCM encrypted, prefixed "enc:"
+  secret     Boolean  @default(false)
+  updatedAt  DateTime @updatedAt
+}
+
+model SyncLog {
+  id         String   @id @default(cuid())
+  provider   Provider
+  job        String   // "leagues" | "fixtures" | "results" | "standings" | "rate" | "predict"
+  ok         Boolean
+  message    String?
+  startedAt  DateTime @default(now())
+  finishedAt DateTime?
+
+  @@index([job, startedAt])
+}

@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; }
+html, body { background: #070B14; color: #E6EBF5; }
+body { -webkit-tap-highlight-color: transparent; font-feature-settings: "ss01", "cv11"; }
+.num { font-family: var(--font-jetbrains), ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+@layer components {
+  .glass { background: rgba(17, 26, 46, 0.62); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; backdrop-filter: blur(14px); }
+  .hairline { border-color: rgba(255,255,255,0.08); }
+  .skeleton { background: linear-gradient(90deg, rgba(255,255,255,0.04), rgba(255,255,255,0.09), rgba(255,255,255,0.04)); background-size: 200% 100%; animation: shimmer 1.4s ease-out infinite; border-radius: 10px; }
+  .focus-ring { @apply outline-none focus-visible:ring-2 focus-visible:ring-ice focus-visible:ring-offset-2 focus-visible:ring-offset-ink-950; }
+}
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+.pb-safe { padding-bottom: max(env(safe-area-inset-bottom), 0px); }
