@@ -1,15 +1,15 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, LayoutGrid, Radar, Ticket, Menu, LineChart, BookOpen, Settings } from "lucide-react";
+import { CalendarDays, LayoutGrid, Radar, Ticket, Menu, LineChart, BookOpen, Settings, Trophy } from "lucide-react";
 import { cn } from "./ui";
 
 const TABS = [
   { href: "/", label: "Today", icon: CalendarDays, match: (p: string) => p === "/" || p.startsWith("/fixtures") || p.startsWith("/match") },
-  { href: "/leagues", label: "Leagues", icon: LayoutGrid, match: (p: string) => p.startsWith("/league") },
+  { href: "/top", label: "Top 20", icon: Trophy, match: (p: string) => p.startsWith("/top") },
   { href: "/scanner", label: "Scanners", icon: Radar, match: (p: string) => p.startsWith("/scanner") },
   { href: "/slips", label: "Slips", icon: Ticket, match: (p: string) => p.startsWith("/slips") },
-  { href: "/more", label: "More", icon: Menu, match: (p: string) => ["/more", "/accuracy", "/methodology", "/settings"].some((x) => p.startsWith(x)) },
+  { href: "/more", label: "More", icon: Menu, match: (p: string) => ["/more", "/accuracy", "/methodology", "/settings", "/league"].some((x) => p.startsWith(x)) },
 ];
 
 export function BottomTabs() {
@@ -49,7 +49,9 @@ export function LeftRail({ leagues }: { leagues: { id: string; name: string; cou
       </Link>
       <nav aria-label="Primary" className="space-y-0.5">
         {item("/", "Today", CalendarDays, path === "/")}
+        {item("/top", "Top 20 tips", Trophy, path.startsWith("/top"))}
         {item("/fixtures", "Fixtures", CalendarDays, path.startsWith("/fixtures"))}
+        {item("/leagues", "Leagues", LayoutGrid, path.startsWith("/leagues"))}
         {item("/scanner", "Scanners", Radar, path.startsWith("/scanner"))}
         {item("/slips", "Slips", Ticket, path.startsWith("/slips"))}
         {item("/accuracy", "Accuracy", LineChart, path.startsWith("/accuracy"))}

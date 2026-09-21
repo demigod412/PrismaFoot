@@ -90,3 +90,16 @@ describe("predictFixture", () => {
     }
   });
 });
+
+import { bestTip, tipHit } from "@/lib/top";
+describe("top tips", () => {
+  const base = { band: "HIGH", confidence: 80, calHome: 0.62, calDraw: 0.22, calAway: 0.16, calOver15: 0.78, calOver25: 0.52, calOver35: 0.28, calOver45: 0.12, calBtts: 0.5 } as never;
+  it("picks the single strongest qualifying market and skips Low", () => {
+    const t = bestTip(base, "H", "A")!;
+    expect(t.market).toBe("over15"); expect(t.p).toBeCloseTo(0.78);
+    expect(bestTip({ ...(base as object), band: "LOW" } as never, "H", "A")).toBeNull();
+  });
+  it("scores results", () => {
+    expect(tipHit("under35", 2, 1)).toBe(true); expect(tipHit("btts_no", 2, 0)).toBe(true); expect(tipHit("away", 1, 1)).toBe(false);
+  });
+});

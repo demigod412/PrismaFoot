@@ -1,7 +1,9 @@
 import Link from "next/link";
 export const metadata = { title: "More" };
 const LINKS = [
+  { href: "/top", t: "Top 20 tips", d: "Strongest tip per match, today up to 7 days ahead" },
   { href: "/fixtures", t: "Fixtures", d: "14-day board with league and market filters" },
+  { href: "/leagues", t: "Leagues", d: "Tables, ratings and fixtures per league" },
   { href: "/accuracy", t: "Accuracy", d: "Brier, log loss and baselines on locked calls" },
   { href: "/methodology", t: "Methodology", d: "Formulas, model version and data sources" },
   { href: "/settings", t: "Settings", d: "Data keys, scanner floors, timezone" },

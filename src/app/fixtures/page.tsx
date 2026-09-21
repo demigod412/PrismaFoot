@@ -33,11 +33,11 @@ export default async function Fixtures({ searchParams }: { searchParams: Promise
     <PullToRefresh>
       <h1 className="mb-4 text-2xl font-semibold tracking-tight">Fixtures</h1>
       <DateNav active={date} base="/fixtures" extra={`${sp.league ? `&league=${sp.league}` : ""}${market !== "all" ? `&market=${market}` : ""}`} />
-      <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1">
+      <div data-no-ptr className="mb-3 flex gap-1.5 overflow-x-auto pb-1">
         <Link href={q({ league: undefined })}><Chip active={!sp.league}>All leagues</Chip></Link>
         {leagues.map((l) => <Link key={l.id} href={q({ league: l.id })}><Chip active={sp.league === l.id}>{l.name}</Chip></Link>)}
       </div>
-      <div className="mb-5 flex gap-1.5 overflow-x-auto pb-1">
+      <div data-no-ptr className="mb-5 flex gap-1.5 overflow-x-auto pb-1">
         {MARKETS.map((m) => <Link key={m.slug} href={q({ market: m.slug })}><Chip active={market === m.slug}>{m.label}</Chip></Link>)}
       </div>
       {shown.length ? <FixtureList fixtures={shown} picks={picks} />

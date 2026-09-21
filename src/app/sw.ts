@@ -22,7 +22,7 @@ const serwist = new Serwist({
   runtimeCaching: [
     { matcher: ({ url }) => url.pathname.startsWith("/api/") || url.pathname.startsWith("/settings"), handler: new NetworkOnly() },
     {
-      matcher: ({ request, url }) => request.mode === "navigate" && (url.pathname === "/" || /^\/(fixtures|match|league|scanner)/.test(url.pathname)),
+      matcher: ({ request, url }) => request.mode === "navigate" && (url.pathname === "/" || /^\/(fixtures|match|league|scanner|top)/.test(url.pathname)),
       handler: new NetworkFirst({
         cacheName: "pages",
         networkTimeoutSeconds: 3,
