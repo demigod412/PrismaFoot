@@ -66,12 +66,20 @@ export function KeysForm({ sources, primary }: { sources: Record<string, "env" |
 
 export function FloorsForm({ floors }: { floors: Record<string, number> }) {
   const [s, act, pending] = useActionState(saveFloors, null);
-  const labels: Record<string, string> = { safeP: "Safe: minimum p (High confidence only)", winMargin: "Win: margin over 2nd outcome", o15: "Over 1.5 floor", o25: "Over 2.5 floor", btts: "BTTS floor", draw: "Draw floor", team2: "Team 2+ goals floor", u25: "Under 2.5 floor", u35: "Under 3.5 floor", u45: "Under 4.5 floor", dc: "Double chance floor", bttsNo: "BTTS No floor", by2: "Win by 2+ floor", corners: "Corners 8.5 floor", shots: "Shots 24.5 floor" };
+  const labels: Record<string, string> = {
+    safeP: "Safe list — minimum probability (High confidence only)", winMargin: "Win — lead over the next outcome",
+    o15: "Over 1.5 goals", o25: "Over 2.5 goals", u25: "Under 2.5 goals", u35: "Under 3.5 goals", u45: "Under 4.5 goals",
+    btts: "Both teams to score", bttsNo: "BTTS No", draw: "Draw", team2: "A team to score 2+", by2: "Win by 2+ (−1.5)",
+    dc: "Double chance", winOver: "Win or Over 2.5",
+    h1u15: "1st half Under 1.5", h1u25: "1st half Under 2.5", h2u25: "2nd half Under 2.5", htDraw: "Half-time draw",
+    corners: "Corners (this fixture's line)", shots: "Total shots (this fixture's line)",
+  };
   return (
     <form action={act} className="grid gap-3 sm:grid-cols-2">
       {Object.entries(floors).map(([k, v]) => (
         <label key={k} className="text-xs text-slate-400">{labels[k] ?? k}<input name={k} type="number" step="0.01" min="0.01" max="0.99" defaultValue={v} className={cn(input, "num")} /></label>
       ))}
+      <p className="sm:col-span-2 text-xs leading-relaxed text-slate-400">A floor is the minimum model probability a pick needs before that scanner shows it. 0.60 = 60%. Raise a floor for fewer, stronger picks; lower it for more. Floors only filter the scanner lists — the Top 20 and each match page always show their strongest markets.</p>
       <div className="sm:col-span-2"><button className={btn} disabled={pending}>Save floors</button><Status s={s} /></div>
     </form>
   );

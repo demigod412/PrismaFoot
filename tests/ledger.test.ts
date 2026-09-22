@@ -217,8 +217,8 @@ describe("provider rate limits", () => {
     const { fetchJson } = await import("@/lib/providers/http");
     const waits: number[] = [];
     const realTimeout = globalThis.setTimeout;
-    // @ts-expect-error test double: run timers immediately but record the delay asked for
-    globalThis.setTimeout = ((fn: () => void, ms: number) => { waits.push(ms); return realTimeout(fn, 0); }) as typeof setTimeout;
+    // test double: run timers immediately but record the delay asked for
+    globalThis.setTimeout = ((fn: () => void, ms: number) => { waits.push(ms); return realTimeout(fn, 0); }) as unknown as typeof setTimeout;
     let calls = 0;
     globalThis.fetch = (async () => {
       calls++;
