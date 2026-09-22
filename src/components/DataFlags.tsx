@@ -5,6 +5,12 @@ const TEXT: Record<string, string> = {
   goals_only_ratings: "Ratings built from goals (no xG feed)",
   new_team_home: "Home side has no history here; league average used",
   new_team_away: "Away side has no history here; league average used",
+  no_corner_data: "Corners not available yet (needs match statistics history)",
+  no_shot_data: "Total shots not available yet (needs match statistics history)",
+  early_season: "Early season: few matches this season, last season still carries weight",
+  prior_home: "Home side is new to this league: rating starts from its record in the league it came from",
+  prior_away: "Away side is new to this league: rating starts from its record in the league it came from",
+  late_lock: "Locked late (server was busy): this call is excluded from scoring",
   neutral_venue: "Tournament match at a neutral venue: no home advantage applied",
   low_band_capped: "Low confidence: displayed probabilities capped below 90%",
 };

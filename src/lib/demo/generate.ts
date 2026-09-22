@@ -1,6 +1,8 @@
 import type { PrismaClient } from "@prisma/client";
 import { makeRng, poissonSample } from "./rng";
-import { rateAndPredictLeague } from "../pipeline/predict";
+import { buildContext, rateAndPredictLeague, writePrediction } from "../pipeline/predict";
+import { refitCalibration, settle, snapshotAccuracy } from "../pipeline/ledger";
+import { marketsFromMatrix, scoreMatrix } from "../model/dixonColes";
 
 /* DEMO data: fictional clubs, simulated from hidden strengths, then rated and predicted by the real engine.
    Everything shown in DEMO mode is internally consistent Dixon–Coles output — and is labelled as demo. */
@@ -14,7 +16,11 @@ const LEAGUES = [
 const DAY = 86_400_000;
 
 export async function seedDemo(db: PrismaClient, now = new Date()) {
-  await db.prediction.deleteMany({ where: { fixture: { provider: "DEMO" } } }); // demo rows only; live ledger is never touched
+  // demo rows only; the live ledger is never touched
+  await db.oddsQuote.deleteMany({ where: { fixture: { provider: "DEMO" } } });
+  await db.accuracyDaily.deleteMany({ where: { scope: "DEMO" } });
+  await db.calibrationModel.deleteMany({ where: { provider: "DEMO" } });
+  await db.prediction.deleteMany({ where: { fixture: { provider: "DEMO" } } });
   await db.result.deleteMany({ where: { source: "DEMO" } });
   await db.fixture.deleteMany({ where: { provider: "DEMO" } });
   await db.teamRatingSnapshot.deleteMany({ where: { team: { provider: "DEMO" } } });
@@ -58,11 +64,38 @@ export async function seedDemo(db: PrismaClient, now = new Date()) {
       if (kickoff.getTime() > now.getTime() + 14 * DAY) continue;
       const hg = past ? poissonSample(rng, base * truth[hi].a * truth[ai].d * home) : null;
       const ag = past ? poissonSample(rng, base * truth[ai].a * truth[hi].d) : null;
-      await db.fixture.create({ data: {
+      const fx = await db.fixture.create({ data: {
         provider: "DEMO", externalId: `${L.code}-${k}`, leagueId: league.id, season, round: `Round ${r + 1}`,
         kickoffUtc: kickoff, status: past ? "FINISHED" : "SCHEDULED", homeTeamId: teams[hi].id, awayTeamId: teams[ai].id,
         homeGoals: hg, awayGoals: ag,
+        // Demo stats: stronger attacks win more corners and take more shots
+        ...(past ? {
+          homeCorners: poissonSample(rng, 5.3 * truth[hi].a ** 0.6 * truth[ai].d ** 0.4), awayCorners: poissonSample(rng, 4.4 * truth[ai].a ** 0.6 * truth[hi].d ** 0.4),
+          homeShots: poissonSample(rng, 13.5 * truth[hi].a ** 0.7 * truth[ai].d ** 0.5), awayShots: poissonSample(rng, 11 * truth[ai].a ** 0.7 * truth[hi].d ** 0.5),
+          statsFetched: true,
+        } : {}),
       } });
+      // Demo bookmaker: true probabilities + 6% margin + a little noise; quoted the day before kickoff.
+      if (kickoff.getTime() > now.getTime() - 22 * DAY) {
+        const m = marketsFromMatrix(scoreMatrix(base * truth[hi].a * truth[ai].d * home, base * truth[ai].a * truth[hi].d, -0.08));
+        const price = (pt: number) => Math.max(1.02, Math.round((1 / (pt * 1.06)) * (1 + (rng() - 0.5) * 0.08) * 100) / 100);
+        const probs: Record<string, number> = { home: m.home, draw: m.draw, away: m.away, dc_1x: m.home + m.draw, dc_x2: m.draw + m.away, dc_12: m.home + m.away,
+          over15: m.over15, over25: m.over25, under25: 1 - m.over25, under35: 1 - m.over35, btts_yes: m.btts, btts_no: 1 - m.btts };
+        await db.oddsQuote.createMany({ data: Object.entries(probs).map(([market, pt]) => ({ fixtureId: fx.id, market, odds: price(pt), best: price(pt) + 0.05, books: 6, fetchedAt: new Date(kickoff.getTime() - DAY) })) });
+      }
+    }
+
+    // Walk-forward demo ledger: each of the last 3 weeks predicted only from data available before it, locked at T-15.
+    for (let w = 3; w >= 1; w--) {
+      const weekStart = new Date(now.getTime() - w * 7 * DAY), weekEnd = new Date(weekStart.getTime() + 7 * DAY);
+      const ctx = await buildContext(db, league.id, weekStart);
+      const games = await db.fixture.findMany({ where: { leagueId: league.id, kickoffUtc: { gte: weekStart, lt: weekEnd }, status: "FINISHED" }, include: { homeTeam: true, awayTeam: true } });
+      for (const g of games) {
+        await writePrediction(db, ctx, g, {
+          news: { home: { confirmedStarterAbsences: 0 }, away: { confirmedStarterAbsences: 0 } },
+          generatedAt: new Date(g.kickoffUtc.getTime() - 2 * 3600_000), lockAt: new Date(g.kickoffUtc.getTime() - 15 * 60_000),
+        });
+      }
     }
     await rateAndPredictLeague(db, league.id, {
       now,
@@ -71,4 +104,7 @@ export async function seedDemo(db: PrismaClient, now = new Date()) {
         ? { home: { confirmedStarterAbsences: 0 }, away: { confirmedStarterAbsences: 0 } } : null,
     });
   }
+  await settle(db, "DEMO");
+  await refitCalibration(db, "DEMO");
+  await snapshotAccuracy(db, "DEMO", 25);
 }

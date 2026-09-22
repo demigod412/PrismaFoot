@@ -26,7 +26,7 @@ export default async function Home() {
       <div className="mb-6 grid gap-3 md:grid-cols-[1fr_16rem]">
         <nav aria-label="Scanner shortcuts" className="flex gap-2 overflow-x-auto pb-1">
           <Link href="/top" className="focus-ring glass hidden shrink-0 !rounded-xl border-edge/40 px-3 py-2 text-sm text-edge md:block">Top 20</Link>
-          {SCANNERS.filter((s) => ["safe", "win", "o25", "u25", "btts", "o15", "u35", "draw"].includes(s.slug)).map((s) => (
+          {SCANNERS.filter((s) => ["safe", "win", "dc", "o25", "u25", "btts", "bttsno", "by2", "corners", "shots"].includes(s.slug)).map((s) => (
             <Link key={s.slug} href={`/scanner/${s.slug}`} className="focus-ring glass shrink-0 !rounded-xl px-3 py-2 text-sm transition-colors duration-200 hover:border-edge/40">
               {s.name} <span className="num ml-1 text-edge">{counts[s.slug] ?? 0}</span>
             </Link>

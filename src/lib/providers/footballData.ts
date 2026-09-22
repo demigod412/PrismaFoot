@@ -68,6 +68,7 @@ export function footballData(key: string, base = process.env.FOOTBALL_DATA_BASE_
     async getInjuries() { return null; },
     async getXg() { return null; },
     async getOdds() { return []; },
+    async getStats() { return null; }, // football-data has no match statistics
     async testConnection() {
       try { const l = await this.getLeagues(); return { ok: true, message: `${l.length} competitions available` }; }
       catch (e) { return { ok: false, message: (e as Error).message }; }

@@ -3,10 +3,11 @@ import { addDays, format } from "date-fns";
 
 const ymd = (d: Date) => format(d, "yyyy-MM-dd");
 import type { FootballProvider, PFixture } from "../providers/types";
-import { PROVIDER_ENUM, THROTTLE_MS } from "../providers";
+import { PROVIDER_ENUM, THROTTLE_MS } from "../providers/constants";
 import { LEAGUE_ALLOWLIST, POOL_SETTINGS } from "../leagues";
 import { FIXTURE_WINDOW_DAYS } from "../window";
 import { rateAndPredictLeague } from "./predict";
+import { lockDue, refitCalibration, settle, snapshotAccuracy } from "./ledger";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -29,15 +30,19 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
   const log = await db.syncLog.create({ data: { provider, job: "fixtures", ok: false } });
   const report: Record<string, unknown> = {};
   try {
-    const leagues = (await p.getLeagues()).filter((l) => allow.some((a) => a.id === l.externalId));
-    let injuryCalls = 0;
+    // Pooled competitions (European cups, internationals) last, so they see this run's domestic results.
+    const leagues = (await p.getLeagues()).filter((l) => allow.some((a) => a.id === l.externalId))
+      .sort((x, y) => Number(!!allow.find((a) => a.id === x.externalId)?.pool) - Number(!!allow.find((a) => a.id === y.externalId)?.pool));
+    let injuryCalls = 0, statsCalls = 0, oddsCalls = 0;
+    const ODDS_CAP = Number(process.env.MAX_ODDS_CALLS) || 30;
+    const STATS_CAP = Number(process.env.MAX_STATS_CALLS) || 30;
     for (const l of leagues) {
       const entry = allow.find((a) => a.id === l.externalId)!;
       const pool = entry.pool ? POOL_SETTINGS[entry.pool] : undefined;
       const league = await db.league.upsert({
         where: { provider_externalId_season: { provider, externalId: l.externalId, season: l.season } },
-        update: { name: l.name, country: l.country, code: l.code, focusGroup: entry.focus, ratingPool: entry.pool ?? null, neutral: !!entry.neutral },
-        create: { provider, externalId: l.externalId, name: l.name, country: l.country, code: l.code, season: l.season, focusGroup: entry.focus, ratingPool: entry.pool ?? null, neutral: !!entry.neutral },
+        update: { name: l.name, country: l.country, code: l.code, focusGroup: entry.focus, ratingPool: entry.pool ?? null, feedsPool: entry.feeds ?? null, neutral: !!entry.neutral, tier: entry.tier ?? 1 },
+        create: { provider, externalId: l.externalId, name: l.name, country: l.country, code: l.code, season: l.season, focusGroup: entry.focus, ratingPool: entry.pool ?? null, feedsPool: entry.feeds ?? null, neutral: !!entry.neutral, tier: entry.tier ?? 1 },
       });
       // Whole seasons in one request each (current + previous; 3 seasons for national teams).
       const fixtures: PFixture[] = [];
@@ -64,13 +69,48 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
         const data = {
           leagueId: league.id, season: f.season, round: f.round, kickoffUtc: f.kickoffUtc, status: f.status,
           homeTeamId: h.id, awayTeamId: a.id, homeGoals: f.homeGoals ?? null, awayGoals: f.awayGoals ?? null,
-          homeXg: f.homeXg ?? null, awayXg: f.awayXg ?? null, homeShots: f.homeShots ?? null, awayShots: f.awayShots ?? null, venue: f.venue,
+          venue: f.venue,
+          // only overwrite stats the provider actually sent (don't wipe backfilled corners/shots)
+          ...(f.homeXg != null ? { homeXg: f.homeXg, awayXg: f.awayXg } : {}),
+          ...(f.homeShots != null ? { homeShots: f.homeShots, awayShots: f.awayShots } : {}),
         };
         await db.fixture.upsert({ where: { provider_externalId: { provider, externalId: f.externalId } }, update: data, create: { provider, externalId: f.externalId, ...data } });
       }
       await db.league.update({ where: { id: league.id }, data: { lastSyncAt: new Date() } });
-      const upcoming = keep.filter((f) => f.status === "SCHEDULED" && f.kickoffUtc > now).length;
-      report[l.name] = { fixtures: keep.length, upcoming, ...(errors.length ? { errors } : {}), ...await rateAndPredictLeague(db, league.id, {
+
+      // Corners + total shots backfill (API-Football /fixtures/statistics: one request per match, newest first, capped per run)
+      let stats = 0;
+      if (p.id === "api-football" && statsCalls < STATS_CAP) {
+        const need = await db.fixture.findMany({ where: { leagueId: league.id, status: "FINISHED", statsFetched: false, kickoffUtc: { gte: addDays(now, -400) } }, orderBy: { kickoffUtc: "desc" }, take: STATS_CAP - statsCalls });
+        for (const f of need) {
+          try {
+            const st = await p.getStats(f.externalId);
+            await db.fixture.update({ where: { id: f.id }, data: { statsFetched: true, ...(st ? { homeCorners: st.homeCorners, awayCorners: st.awayCorners, ...(st.homeShots != null ? { homeShots: st.homeShots, awayShots: st.awayShots } : {}) } : {}) } });
+            stats++;
+          } catch (e) { errors.push(`stats: ${(e as Error).message}`); break; }
+          statsCalls++; await sleep(THROTTLE_MS[p.id]);
+        }
+      }
+      // Bookmaker odds for the value list and the market baseline (API-Football), capped per run
+      let quotes = 0;
+      if (p.getLeagueOdds && oddsCalls < ODDS_CAP) {
+        const soon = await db.fixture.findMany({ where: { leagueId: league.id, status: "SCHEDULED", kickoffUtc: { gt: now, lte: addDays(now, 7) } }, select: { id: true, externalId: true } });
+        if (soon.length) {
+          const byExt = new Map(soon.map((f) => [f.externalId, f.id]));
+          for (let page = 1, pages = 1; page <= Math.min(pages, 5) && oddsCalls < ODDS_CAP; page++) {
+            try {
+              const r = await p.getLeagueOdds(l.externalId, l.season, page); oddsCalls++;
+              if (!r) break;
+              pages = r.pages;
+              const rows = r.items.flatMap((it) => { const fid = byExt.get(it.fixtureExt); return fid ? Object.entries(it.quotes).map(([market, q]) => ({ fixtureId: fid, market, odds: q!.odds, best: q!.best, books: q!.books })) : []; });
+              if (rows.length) { await db.oddsQuote.createMany({ data: rows }); quotes += rows.length; }
+            } catch (e) { errors.push(`odds: ${(e as Error).message}`); break; }
+            await sleep(THROTTLE_MS[p.id]);
+          }
+        }
+      }
+      const upcoming = new Set(keep.filter((f) => f.status === "SCHEDULED" && f.kickoffUtc > now).map((f) => f.externalId)).size;
+      report[l.name] = { fixtures: seen.size, upcoming, ...(stats ? { stats } : {}), ...(quotes ? { quotes } : {}), ...(errors.length ? { errors } : {}), ...await rateAndPredictLeague(db, league.id, {
         now,
         newsLoader: async (fx) => {
           if (fx.kickoffUtc.getTime() - now.getTime() > 24 * 3600_000) return null; // only fetch news close to kickoff
@@ -87,6 +127,13 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
         },
       }) };
     }
+    // Ledger: lock due calls, append results, refit calibration, refresh daily accuracy rows
+    report.ledger = {
+      locked: await lockDue(db, new Date()),
+      settled: await settle(db, provider),
+      calibration: await refitCalibration(db, provider),
+      accuracyDays: await snapshotAccuracy(db, provider),
+    };
     await db.syncLog.update({ where: { id: log.id }, data: { ok: true, finishedAt: new Date(), message: JSON.stringify(report).slice(0, 2000) } });
     return report;
   } catch (e) {

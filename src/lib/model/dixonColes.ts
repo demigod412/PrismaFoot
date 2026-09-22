@@ -89,6 +89,21 @@ export function unders(m: Pick<Markets, "over25" | "over35" | "over45">) {
   return { under25: 1 - m.over25, under35: 1 - m.over35, under45: 1 - m.over45 };
 }
 
+/** P(home wins by ≥ k) and P(away wins by ≥ k). k = 2 is the "win by 2+ goals" (Asian −1.5) market. */
+export function winByAtLeast(m: Matrix, k: number) {
+  let home = 0, away = 0;
+  m.forEach((row, i) => row.forEach((p, j) => { if (i - j >= k) home += p; if (j - i >= k) away += p; }));
+  return { home, away };
+}
+
+/** European handicap on the HOME side: result of (home + h) vs away → [home, draw, away] probabilities. */
+export function europeanHandicap(m: number[][], h: number): [number, number, number] {
+  let a = 0, d = 0, b = 0;
+  m.forEach((row, i) => row.forEach((p, j) => { const x = i + h - j; if (x > 0) a += p; else if (x === 0) d += p; else b += p; }));
+  const s = a + d + b || 1;
+  return [a / s, d / s, b / s];
+}
+
 export function topScorelines(m: Matrix, n = 5): Scoreline[] {
   const cells: Scoreline[] = [];
   m.forEach((row, i) => row.forEach((p, j) => cells.push({ h: i, a: j, p })));

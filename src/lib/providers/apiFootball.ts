@@ -1,5 +1,6 @@
 import "server-only";
 import { fetchJson, qs } from "./http";
+import { parseApiFootballOdds } from "../odds";
 import type { FootballProvider, FxStatus, PFixture, PInjury, PLeague, PStanding } from "./types";
 
 /* API-Football v3 (direct api-sports or via RapidAPI). */
@@ -86,6 +87,16 @@ export function apiFootball(opts: { key?: string; rapidKey?: string; rapidHost?:
         const v = (k: string) => Number(mw.values.find((x) => x.value === k)?.odd);
         return [{ bookmaker: b.name, home: v("Home"), draw: v("Draw"), away: v("Away") }];
       });
+    },
+    async getLeagueOdds(leagueId, season, page) {
+      const r = await fetchJson<{ response: Parameters<typeof parseApiFootballOdds>[0]; paging?: { current: number; total: number }; errors?: unknown }>("api-football", `${base}/odds?${qs({ league: leagueId, season, page })}`, headers);
+      return { items: parseApiFootballOdds(r.response ?? []), pages: r.paging?.total ?? 1 };
+    },
+    async getStats(fixtureId) {
+      const r = await get<{ team: { id: number }; statistics: { type: string; value: number | string | null }[] }[]>(`/fixtures/statistics?fixture=${fixtureId}`);
+      if (r.length < 2) return null;
+      const v = (i: number, type: string) => { const x = r[i].statistics.find((s) => s.type === type)?.value; return x == null ? null : Number(x) || 0; };
+      return { homeCorners: v(0, "Corner Kicks"), awayCorners: v(1, "Corner Kicks"), homeShots: v(0, "Total Shots"), awayShots: v(1, "Total Shots") };
     },
     async testConnection() {
       try {

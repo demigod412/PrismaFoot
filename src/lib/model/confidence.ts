@@ -8,6 +8,7 @@ export interface ConfidenceInput {
   restGapDays: number | null; // |restHome − restAway|
   calibrationResidual: number; // mean |cal − raw|
   margin1x2: number;       // top outcome p − second outcome p
+  penalty?: number;        // extra deduction (early season, prior-based ratings)
 }
 
 /**
@@ -29,6 +30,7 @@ export function confidenceScore(c: ConfidenceInput): { score: number; band: Band
   score -= 20 * c.volatility;
   if (c.restGapDays != null && c.restGapDays >= 3) score -= 5;
   score -= Math.min(15, 100 * c.calibrationResidual);
+  score -= c.penalty ?? 0;
   score = Math.round(Math.max(0, Math.min(100, score)));
   const highOk = score >= 70 && s >= 8 && c.margin1x2 >= 0.15 && c.newsComplete;
   const band: Band = highOk ? "HIGH" : score >= 45 ? "MEDIUM" : "LOW";

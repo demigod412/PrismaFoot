@@ -44,7 +44,8 @@ model League {
   season      Int
   tier        Int      @default(1)
   focusGroup  String?  // "europe-strong" | "england" | "international" | null
-  ratingPool  String?  // leagues sharing a pool are rated together by team externalId (national teams: "intl")
+  ratingPool  String?  // leagues sharing a pool are rated together by team externalId (national teams: "intl", European cups: "europe")
+  feedsPool   String?  // domestic league whose matches also feed a pool (e.g. Premier League → "europe"), but is predicted with its own fit
   neutral     Boolean  @default(false) // tournament finals: most games at neutral venues → no home advantage
   // Per-league model parameters (refit on every rating run)
   homeAdv     Float    @default(1.25) // γ_league
@@ -97,9 +98,13 @@ model Fixture {
   awayXg       Float?
   homeShots    Int?
   awayShots    Int?
+  homeCorners  Int?
+  awayCorners  Int?
+  statsFetched Boolean      @default(false) // corners/shots requested from the provider (avoid re-asking)
   venue        String?
   predictions  Prediction[]
   results      Result[]
+  odds         OddsQuote[]
   updatedAt    DateTime      @updatedAt
   createdAt    DateTime      @default(now())
 
@@ -158,6 +163,20 @@ model Prediction {
   calOver25     Float
   calOver35     Float
   calOver45     Float
+  // Win by 2+ goals (Asian −1.5), from the same matrix
+  rawHomeBy2    Float?
+  rawAwayBy2    Float?
+  calHomeBy2    Float?
+  calAwayBy2    Float?
+  // Corners and total shots (separate count models; null when there isn't enough stats history)
+  cornersLine   Float?
+  expCorners    Float?
+  rawCornersOver Float?
+  calCornersOver Float?
+  shotsLine     Float?
+  expShots      Float?
+  rawShotsOver  Float?
+  calShotsOver  Float?
   // Unders are complements of the calibrated overs: under_x = 1 − over_x (lines 2.5 / 3.5 / 4.5).
   calBtts       Float
   calibrationId String?
@@ -193,6 +212,7 @@ model Result {
 
 model CalibrationModel {
   id           String   @id @default(cuid())
+  provider     Provider?
   modelVersion String
   market       String   // "1x2_home" | "1x2_draw" | "1x2_away" | "ou25" | "ou15" | "ou35" | "ou45" | "btts"
   method       String   // "identity" | "bucket" | "isotonic"
@@ -229,8 +249,12 @@ model Slip {
   id         String   @id @default(cuid())
   ownerKey   String   // anonymous device key (no accounts in v1)
   name       String   @default("My slip")
-  legs       Json     // [{fixtureId, market, selection, p, band}]
+  legs       Json     // [{fixtureId, market, label, p, addedAt}]
   bookie     String?
+  bookingCode  String?
+  bookingUrl   String?
+  bookingAt    DateTime?
+  bookingNote  String?  // unbookable legs / last error, shown to the user
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -254,4 +278,18 @@ model SyncLog {
   finishedAt DateTime?
 
   @@index([job, startedAt])
+}
+
+/// Bookmaker prices (median / best across bookmakers) per market, appended on every fetch.
+model OddsQuote {
+  id        String   @id @default(cuid())
+  fixtureId String
+  fixture   Fixture  @relation(fields: [fixtureId], references: [id])
+  market    String   // MarketKey: home, draw, away, dc_1x, over25, btts_no, home_by2, corners_over, ...
+  odds      Float    // median decimal odds across bookmakers
+  best      Float    // best decimal odds
+  books     Int      // number of bookmakers quoting it
+  fetchedAt DateTime @default(now())
+
+  @@index([fixtureId, market, fetchedAt])
 }

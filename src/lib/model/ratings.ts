@@ -13,7 +13,12 @@ export interface HistMatch {
   awayXg?: number | null;
   homeShots?: number | null;
   awayShots?: number | null;
+  /** extra weight multiplier (e.g. 0.85 for last season's matches) */
+  weight?: number;
 }
+
+/** Shrinkage target for a team (1 = league average). Promoted sides typically a < 1, d > 1. */
+export interface TeamPrior { a: number; d: number; weight?: number }
 
 export interface TeamRating {
   attack: number;   // α  (goals vs an average defence, neutral venue)
@@ -53,7 +58,7 @@ export function chooseInputKind(ms: HistMatch[]): InputKind {
  *   λ_H = α_H · β_A · γ,   λ_A = α_A · β_H   (exactly the spec's form).
  * Shrinkage: every team gets SHRINK_PSEUDO_MATCHES pseudo-matches at league average.
  */
-export function fitLeague(matches: HistMatch[], asOf: Date, opts: { iterations?: number; halfLifeDays?: number } = {}): LeagueFit {
+export function fitLeague(matches: HistMatch[], asOf: Date, opts: { iterations?: number; halfLifeDays?: number; priors?: Map<string, TeamPrior> } = {}): LeagueFit {
   const kind = chooseInputKind(matches);
   const ms = matches.filter((m) => m.date < asOf);
   // Shots → goal-equivalents via league conversion rate.
@@ -68,9 +73,13 @@ export function fitLeague(matches: HistMatch[], asOf: Date, opts: { iterations?:
     : kind === "shots" ? (side === "h" ? m.homeShots! : m.awayShots!) * conv
     : side === "h" ? m.homeGoals : m.awayGoals;
 
-  const w = ms.map((m) => recencyWeight((asOf.getTime() - m.date.getTime()) / 86_400_000, opts.halfLifeDays ?? HALF_LIFE_DAYS));
+  const w = ms.map((m) => recencyWeight((asOf.getTime() - m.date.getTime()) / 86_400_000, opts.halfLifeDays ?? HALF_LIFE_DAYS) * (m.weight ?? 1));
   const ids = new Set<string>();
   ms.forEach((m) => { ids.add(m.homeId); ids.add(m.awayId); });
+  // Teams with a prior but no matches yet (e.g. newly promoted) still get a rating: their prior.
+  opts.priors?.forEach((_, id) => ids.add(id));
+  const pr = (id: string) => opts.priors?.get(id);
+  const kOf = (id: string) => pr(id)?.weight ?? SHRINK_PSEUDO_MATCHES;
   const a = new Map<string, number>(); const d = new Map<string, number>();
   ids.forEach((id) => { a.set(id, 1); d.set(id, 1); });
 
@@ -79,12 +88,11 @@ export function fitLeague(matches: HistMatch[], asOf: Date, opts: { iterations?:
   const ag = ms.reduce((s, m, k) => s + w[k] * y(m, "a"), 0);
   let c = Math.max(0.3, ag / sw);
   let g = ag > 0 ? Math.min(1.6, Math.max(0.9, hg / ag)) : 1.25;
-  const K = SHRINK_PSEUDO_MATCHES;
 
   for (let it = 0; it < (opts.iterations ?? 40); it++) {
     // attack
     const numA = new Map<string, number>(); const denA = new Map<string, number>();
-    ids.forEach((id) => { numA.set(id, K * c * (1 + g) / 2); denA.set(id, K * c * (1 + g) / 2); });
+    ids.forEach((id) => { const k0 = kOf(id) * c * (1 + g) / 2; numA.set(id, k0 * (pr(id)?.a ?? 1)); denA.set(id, k0); });
     ms.forEach((m, k) => {
       numA.set(m.homeId, numA.get(m.homeId)! + w[k] * y(m, "h"));
       denA.set(m.homeId, denA.get(m.homeId)! + w[k] * c * d.get(m.awayId)! * g);
@@ -94,7 +102,7 @@ export function fitLeague(matches: HistMatch[], asOf: Date, opts: { iterations?:
     ids.forEach((id) => a.set(id, numA.get(id)! / denA.get(id)!));
     // defence
     const numD = new Map<string, number>(); const denD = new Map<string, number>();
-    ids.forEach((id) => { numD.set(id, K * c * (1 + g) / 2); denD.set(id, K * c * (1 + g) / 2); });
+    ids.forEach((id) => { const k0 = kOf(id) * c * (1 + g) / 2; numD.set(id, k0 * (pr(id)?.d ?? 1)); denD.set(id, k0); });
     ms.forEach((m, k) => {
       numD.set(m.awayId, numD.get(m.awayId)! + w[k] * y(m, "h"));
       denD.set(m.awayId, denD.get(m.awayId)! + w[k] * c * a.get(m.homeId)! * g);

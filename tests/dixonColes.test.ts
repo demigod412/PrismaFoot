@@ -96,10 +96,56 @@ describe("top tips", () => {
   const base = { band: "HIGH", confidence: 80, calHome: 0.62, calDraw: 0.22, calAway: 0.16, calOver15: 0.78, calOver25: 0.52, calOver35: 0.28, calOver45: 0.12, calBtts: 0.5 } as never;
   it("picks the single strongest qualifying market and skips Low", () => {
     const t = bestTip(base, "H", "A")!;
-    expect(t.market).toBe("over15"); expect(t.p).toBeCloseTo(0.78);
+    expect(t.key).toBe("dc_1x"); expect(t.p).toBeCloseTo(0.84);
     expect(bestTip({ ...(base as object), band: "LOW" } as never, "H", "A")).toBeNull();
   });
   it("scores results", () => {
     expect(tipHit("under35", 2, 1)).toBe(true); expect(tipHit("btts_no", 2, 0)).toBe(true); expect(tipHit("away", 1, 1)).toBe(false);
+  });
+});
+
+import { winByAtLeast, europeanHandicap } from "@/lib/model/dixonColes";
+import { fitRates, predictTotal } from "@/lib/model/rates";
+import { marketHit } from "@/lib/markets";
+describe("new markets", () => {
+  it("win by 2+ and European handicap are coherent", () => {
+    const m = scoreMatrix(2.0, 0.9, -0.08);
+    const w = winByAtLeast(m, 2), k = marketsFromMatrix(m);
+    expect(w.home).toBeLessThan(k.home); expect(w.away).toBeLessThan(k.away);
+    const [h, d, a] = europeanHandicap(m, -1); // home −1: home wins by 2+ = home side of handicap
+    expect(h).toBeCloseTo(w.home, 9); expect(h + d + a).toBeCloseTo(1, 9);
+  });
+  it("corners model recovers an average near the truth", () => {
+    const rng = makeRng(9), ms = [];
+    for (let i = 0; i < 400; i++) { const hI = i % 10, aI = (i * 3 + 1) % 10; if (hI === aI) continue;
+      ms.push({ homeId: `t${hI}`, awayId: `t${aI}`, date: new Date(Date.UTC(2026, 0, 1) + i * 864e5 / 2), h: poissonSample(rng, 5.4), a: poissonSample(rng, 4.4) }); }
+    const fit = fitRates(ms, new Date(Date.UTC(2026, 8, 1)));
+    const t = predictTotal(fit, "t1", "t2", 8.5);
+    expect(t.expected).toBeGreaterThan(8.8); expect(t.expected).toBeLessThan(11);
+    expect(t.over).toBeGreaterThan(0.5);
+  });
+  it("scores double chance, BTTS No, corners", () => {
+    expect(marketHit("dc_x2", { h: 1, a: 1 })).toBe(true);
+    expect(marketHit("btts_no", { h: 3, a: 0 })).toBe(true);
+    expect(marketHit("corners_over", { h: 0, a: 0, hc: 5, ac: 4 }, { corners: 8.5 })).toBe(true);
+    expect(marketHit("shots_under", { h: 0, a: 0 }, { shots: 24.5 })).toBeNull();
+  });
+});
+
+import { selectTop, tipsFor } from "@/lib/top";
+describe("top 20 caps", () => {
+  it("allows at most 2 double chance, 2 Under 4.5 and 2 win-by-2 in the mixed list", () => {
+    const mk = (i: number) => ({ band: "HIGH", confidence: 80, calHome: 0.6 + (i % 5) * 0.02, calDraw: 0.24, calAway: 0.16 - (i % 5) * 0.02,
+      calOver15: 0.7, calOver25: 0.45, calOver35: 0.2, calOver45: 0.08, calBtts: 0.45, calHomeBy2: 0.58, calAwayBy2: 0.03 }) as never;
+    const items = Array.from({ length: 30 }, (_, i) => ({ item: i, id: String(i), startMs: i, tips: tipsFor(mk(i), "H", "A") }));
+    const top = selectTop(items);
+    expect(top).toHaveLength(20);
+    const c = (f: (k: string, g: string) => boolean) => top.filter((t) => f(t.tip.key, t.tip.group)).length;
+    expect(c((_, g) => g === "dc")).toBeLessThanOrEqual(2);
+    expect(c((k) => k === "under45")).toBeLessThanOrEqual(2);
+    expect(c((_, g) => g === "hcp")).toBeLessThanOrEqual(2);
+    expect(new Set(top.map((t) => t.item)).size).toBe(20); // one tip per match
+    // filtered by market: no caps
+    expect(selectTop(items.map((x) => ({ ...x, tips: tipsFor(mk(Number(x.id)), "H", "A", "dc") })), "dc").length).toBe(20);
   });
 });

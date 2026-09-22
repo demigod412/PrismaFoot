@@ -1,5 +1,5 @@
 import { LOW_BAND_DISPLAY_CAP, MODEL_VERSION } from "./constants";
-import { marketsFromMatrix, scoreMatrix, topScorelines, truncateMatrix, type Markets, type Scoreline } from "./dixonColes";
+import { marketsFromMatrix, scoreMatrix, topScorelines, truncateMatrix, winByAtLeast, type Markets, type Scoreline } from "./dixonColes";
 import { priorRating, type LeagueFit, type TeamRating } from "./ratings";
 import { apply, calibrate1x2, IDENTITY_SET, type CalibratorSet } from "./calibration";
 import { confidenceScore, type Band } from "./confidence";
@@ -18,6 +18,8 @@ export interface PredictInput {
   formHome: string; formAway: string;
   calibrators?: CalibratorSet; calibrationResidual?: number;
   neutral?: boolean; // tournament finals at neutral venues: no home advantage
+  earlySeason?: boolean; // either side has < 6 matches this season
+  priorHome?: boolean; priorAway?: boolean; // rating leans on a promoted/relegated prior
 }
 
 export interface PredictOutput {
@@ -25,6 +27,7 @@ export interface PredictOutput {
   inputsHash: string;
   lambdaHome: number; lambdaAway: number; rho: number;
   raw: Markets; cal: Markets;
+  rawBy2: { home: number; away: number }; calBy2: { home: number; away: number };
   predHomeGoals: number; predAwayGoals: number;
   topScorelines: Scoreline[];
   matrix: number[][];
@@ -63,6 +66,7 @@ export function predictFixture(inp: PredictInput): PredictOutput {
   const m = scoreMatrix(lambdaHome, lambdaAway, rho);
   const raw = marketsFromMatrix(m);
   const top = topScorelines(m, 5);
+  const rawBy2 = winByAtLeast(m, 2);
 
   const cs = inp.calibrators ?? IDENTITY_SET;
   const x = calibrate1x2(cs, raw);
@@ -79,8 +83,14 @@ export function predictFixture(inp: PredictInput): PredictOutput {
     newsComplete: !flags.includes("missing_news"),
     volatility: inp.fit.volatility, restGapDays: restGap,
     calibrationResidual: inp.calibrationResidual ?? 0, margin1x2: sorted[0] - sorted[1],
+    penalty: (inp.earlySeason ? 8 : 0) + (inp.priorHome || inp.priorAway ? 5 : 0),
   });
+  if (inp.earlySeason) flags.push("early_season");
+  if (inp.priorHome) flags.push("prior_home");
+  if (inp.priorAway) flags.push("prior_away");
 
+  // Win-by-2 is scaled with the calibrated win probability of the same side (keeps it consistent with 1X2).
+  const calBy2 = { home: raw.home > 0 ? rawBy2.home * (cal.home / raw.home) : 0, away: raw.away > 0 ? rawBy2.away * (cal.away / raw.away) : 0 };
   if (band === "LOW") capLow(cal, flags);
 
   const features = {
@@ -101,7 +111,7 @@ export function predictFixture(inp: PredictInput): PredictOutput {
   return {
     modelVersion: MODEL_VERSION,
     inputsHash: inputsHash({ homeId: inp.homeId, awayId: inp.awayId, kickoff: inp.kickoff.toISOString(), ...features, calN: cs.home.n }),
-    lambdaHome, lambdaAway, rho, raw, cal,
+    lambdaHome, lambdaAway, rho, raw, cal, rawBy2, calBy2,
     predHomeGoals: top[0].h, predAwayGoals: top[0].a,
     topScorelines: top, matrix: truncateMatrix(m), confidence: score, band,
     dataFlags: flags, rationale, features,

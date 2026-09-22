@@ -78,6 +78,22 @@ if [[ "$MODE" == "update" ]]; then
   fi
   sudo -u "$APP_USER" bash -lc "cd '$APP_DIR' && npm ci --no-audit --no-fund && npx prisma db push --skip-generate && npm run build"
   systemctl restart "$APP_NAME"
+  # Refresh scheduled jobs from vercel.json (new jobs such as lock/results appear automatically)
+  CRON_SECRET=$(grep -E '^CRON_SECRET=' "$APP_DIR/.env" | head -1 | cut -d= -f2-)
+  if [[ -f "$APP_DIR/vercel.json" && -n "$CRON_SECRET" ]]; then
+    {
+      echo "# Generated from $APP_DIR/vercel.json"
+      echo "SHELL=/bin/bash"
+      node -e '
+        const v = require(process.argv[1]); const [port, secret, name] = [process.argv[2], process.argv[3], process.argv[4]];
+        for (const c of v.crons || []) console.log(`${c.schedule} root curl -fsS -m 3600 -H "Authorization: Bearer ${secret}" "http://127.0.0.1:${port}${c.path}" >> /var/log/${name}-cron.log 2>&1`);
+      ' "$APP_DIR/vercel.json" "$PORT" "$CRON_SECRET" "$APP_NAME"
+    } > "/etc/cron.d/$APP_NAME"
+    chmod 644 "/etc/cron.d/$APP_NAME"; systemctl restart cron
+    ok "Scheduled jobs refreshed: $(grep -c curl "/etc/cron.d/$APP_NAME") job(s)"
+  fi
+  # Keep the cron log from growing forever
+  printf '/var/log/%s-cron.log {\n  weekly\n  rotate 4\n  compress\n  missingok\n  notifempty\n}\n' "$APP_NAME" > "/etc/logrotate.d/$APP_NAME"
   ok "Updated and restarted. Check: systemctl status $APP_NAME"
   exit 0
 fi

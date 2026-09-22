@@ -76,6 +76,7 @@ export function sportmonks(token: string, base = process.env.SPORTMONKS_BASE_URL
       return f?.homeXg != null && f.awayXg != null ? { home: f.homeXg, away: f.awayXg } : null;
     },
     async getOdds() { return []; },
+    async getStats() { return null; }, // add include=statistics in Phase 6
     async testConnection() {
       try { const l = await get<unknown[]>("/leagues", "&per_page=1"); return { ok: true, message: `Connected (${l.length ? "leagues visible" : "no leagues on plan"})` }; }
       catch (e) { return { ok: false, message: (e as Error).message }; }

@@ -14,6 +14,7 @@ export interface PStanding { team: PTeam; position: number; played: number; poin
 export interface PLineups { homeStarters: string[]; awayStarters: string[]; confirmed: boolean }
 export interface PInjury { teamExternalId: string; player: string; reason: string; confirmedOut: boolean }
 export interface PXg { home: number; away: number }
+export interface PStats { homeCorners: number | null; awayCorners: number | null; homeShots: number | null; awayShots: number | null }
 export interface POdds { bookmaker: string; home: number; draw: number; away: number; over25?: number; under25?: number }
 
 /** Every adapter implements this. Unsupported calls return empty/null — never throw for "not supported". */
@@ -29,5 +30,9 @@ export interface FootballProvider {
   getInjuries(fixtureId: string): Promise<PInjury[] | null>; // null = unsupported/not fetched
   getXg(fixtureId: string): Promise<PXg | null>;
   getOdds(fixtureId: string): Promise<POdds[]>;
+  /** Corners + total shots for a finished match. null = provider/plan has no match statistics. */
+  getStats(fixtureId: string): Promise<PStats | null>;
+  /** Pre-match odds for a whole league, paged. null = provider has no odds. */
+  getLeagueOdds?(leagueId: string, season: number, page: number): Promise<{ items: { fixtureExt: string; quotes: import("../odds").QuoteMap }[]; pages: number } | null>;
   testConnection(): Promise<{ ok: boolean; message: string }>;
 }

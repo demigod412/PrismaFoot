@@ -65,7 +65,7 @@ export function KeysForm({ sources, primary }: { sources: Record<string, "env" |
 
 export function FloorsForm({ floors }: { floors: Record<string, number> }) {
   const [s, act, pending] = useActionState(saveFloors, null);
-  const labels: Record<string, string> = { safeP: "Safe: minimum p (High confidence only)", winMargin: "Win: margin over 2nd outcome", o15: "Over 1.5 floor", o25: "Over 2.5 floor", btts: "BTTS floor", draw: "Draw floor", team2: "Team 2+ goals floor", u25: "Under 2.5 floor", u35: "Under 3.5 floor", u45: "Under 4.5 floor" };
+  const labels: Record<string, string> = { safeP: "Safe: minimum p (High confidence only)", winMargin: "Win: margin over 2nd outcome", o15: "Over 1.5 floor", o25: "Over 2.5 floor", btts: "BTTS floor", draw: "Draw floor", team2: "Team 2+ goals floor", u25: "Under 2.5 floor", u35: "Under 3.5 floor", u45: "Under 4.5 floor", dc: "Double chance floor", bttsNo: "BTTS No floor", by2: "Win by 2+ floor", corners: "Corners 8.5 floor", shots: "Shots 24.5 floor" };
   return (
     <form action={act} className="grid gap-3 sm:grid-cols-2">
       {Object.entries(floors).map(([k, v]) => (

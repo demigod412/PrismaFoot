@@ -1,6 +1,6 @@
 {
   "name": "pitchedge",
-  "version": "0.3.2",
+  "version": "0.5.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -13,7 +13,8 @@
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
-    "ingest": "tsx --conditions=react-server scripts/ingest.ts"
+    "ingest": "tsx --conditions=react-server scripts/ingest.ts",
+    "selfcheck": "tsx scripts/selfcheck.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

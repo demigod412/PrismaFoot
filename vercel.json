@@ -1,1 +1,5 @@
-{ "crons": [{ "path": "/api/cron/ingest", "schedule": "0 */3 * * *" }] }
+{ "crons": [
+  { "path": "/api/cron/ingest", "schedule": "0 */3 * * *" },
+  { "path": "/api/cron/ingest?job=lock", "schedule": "*/5 * * * *" },
+  { "path": "/api/cron/ingest?job=results", "schedule": "7,22,37,52 * * * *" }
+] }

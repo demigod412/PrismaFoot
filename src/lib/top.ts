@@ -1,46 +1,64 @@
 import type { Prediction } from "@prisma/client";
+import { allMarkets, marketHit, type MarketGroup, type MarketKey, type MarketTip, type MatchResult } from "./markets";
 
 /*
- * Top tips: one tip per match (its single strongest market), ranked by a strength score.
+ * Top tips: one tip per match (its single strongest market within the chosen group), ranked by strength.
  *   strength = calibrated p × (0.85 + 0.15 × confidence/100)
- * Probability does almost all the work; confidence breaks near-ties in favour of better-supported calls.
- * Low-confidence calls, draws and Under 4.5 (true in ~90% of games, so it would crowd out everything) are left out.
+ * Left out: Low-confidence calls, tips under 55% and draws.
+ * Caps in the mixed ("All markets") list, so high-probability markets can't take over:
+ *   max 2 double chance · max 2 Under 4.5 · max 2 win-by-2 handicap
+ * When a match's strongest tip is blocked by a cap, its next-strongest market is used instead.
  */
-export type TipMarket = "home" | "away" | "over15" | "over25" | "under25" | "under35" | "btts_yes" | "btts_no";
-export interface Tip { market: TipMarket; label: string; p: number; strength: number }
-
 export const TOP_N = 20;
 export const MIN_P = 0.55;
 export const WINDOWS = [1, 2, 3, 4, 5, 6, 7] as const;
+const EXCLUDED: MarketKey[] = ["draw"];
 
-export function candidates(p: Prediction, home: string, away: string): Omit<Tip, "strength">[] {
-  return [
-    { market: "home", label: `${home} to win`, p: p.calHome },
-    { market: "away", label: `${away} to win`, p: p.calAway },
-    { market: "over15", label: "Over 1.5 goals", p: p.calOver15 },
-    { market: "over25", label: "Over 2.5 goals", p: p.calOver25 },
-    { market: "under25", label: "Under 2.5 goals", p: 1 - p.calOver25 },
-    { market: "under35", label: "Under 3.5 goals", p: 1 - p.calOver35 },
-    { market: "btts_yes", label: "Both teams to score", p: p.calBtts },
-    { market: "btts_no", label: "Both teams to score: No", p: 1 - p.calBtts },
-  ];
-}
+/** Max tips per capped category in the mixed list. */
+export const CAPS = { dc: 2, under45: 2, hcp: 2 } as const;
+type CapKey = keyof typeof CAPS;
+const capOf = (t: MarketTip): CapKey | null => (t.group === "dc" ? "dc" : t.key === "under45" ? "under45" : t.group === "hcp" ? "hcp" : null);
+
+export interface Tip extends MarketTip { strength: number }
+export type TipMarket = MarketKey;
 
 export const strengthOf = (prob: number, confidence: number) => prob * (0.85 + 0.15 * (confidence / 100));
 
-/** The single strongest tip for a match, or null if it doesn't qualify. */
-export function bestTip(p: Prediction, home: string, away: string): Tip | null {
-  if (p.band === "LOW") return null;
-  const best = candidates(p, home, away).sort((a, b) => b.p - a.p)[0];
-  if (!best || best.p < MIN_P) return null;
-  return { ...best, strength: strengthOf(best.p, p.confidence) };
+/** All qualifying tips for one match, strongest first. */
+export function tipsFor(p: Prediction, home: string, away: string, group?: MarketGroup): Tip[] {
+  if (p.band === "LOW") return [];
+  return allMarkets(p, home, away)
+    .filter((m) => !EXCLUDED.includes(m.key) && (!group || m.group === group) && m.p >= MIN_P)
+    .map((m) => ({ ...m, strength: strengthOf(m.p, p.confidence) }))
+    .sort((a, b) => b.strength - a.strength);
 }
 
-export function tipHit(t: TipMarket, h: number, a: number): boolean {
-  switch (t) {
-    case "home": return h > a; case "away": return a > h;
-    case "over15": return h + a >= 2; case "over25": return h + a >= 3;
-    case "under25": return h + a <= 2; case "under35": return h + a <= 3;
-    case "btts_yes": return h > 0 && a > 0; case "btts_no": return h === 0 || a === 0;
+/** Strongest single tip for one match (match page headline, rows). Under 4.5 is skipped here: it would head almost every match. */
+export function bestTip(p: Prediction, home: string, away: string, group?: MarketGroup): Tip | null {
+  return tipsFor(p, home, away, group).find((t) => group || t.key !== "under45") ?? null;
+}
+
+/**
+ * Build the Top N: one tip per match, strongest first, with category caps in the mixed list.
+ * Items carry whatever the caller needs back (fixture etc.).
+ */
+export function selectTop<T>(items: { item: T; id: string; tips: Tip[]; startMs: number }[], group?: MarketGroup, n = TOP_N): { item: T; tip: Tip }[] {
+  const pairs = items.flatMap((x) => x.tips.map((tip) => ({ x, tip })))
+    .sort((a, b) => b.tip.strength - a.tip.strength || a.x.startMs - b.x.startMs);
+  const used = new Set<string>(), count: Record<CapKey, number> = { dc: 0, under45: 0, hcp: 0 };
+  const out: { item: T; tip: Tip }[] = [];
+  for (const { x, tip } of pairs) {
+    if (out.length >= n) break;
+    if (used.has(x.id)) continue;
+    const c = group ? null : capOf(tip); // caps only apply to the mixed list
+    if (c && count[c] >= CAPS[c]) continue;
+    used.add(x.id); if (c) count[c]++;
+    out.push({ item: x.item, tip });
   }
+  return out;
+}
+
+/** Back-compat helper for goals-only callers. */
+export function tipHit(t: MarketKey, h: number, a: number, extra: Partial<MatchResult> = {}, lines: { corners?: number | null; shots?: number | null } = {}) {
+  return marketHit(t, { h, a, ...extra }, lines);
 }

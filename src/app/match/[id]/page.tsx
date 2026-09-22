@@ -5,7 +5,12 @@ import { getMatch } from "@/lib/queries";
 import { fmtUtc, fmtWat } from "@/lib/time";
 import { ProbBar } from "@/components/ProbBar";
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
-import { ScoreHeatmap } from "@/components/ScoreHeatmap";
+import { allMarkets, marketHit, GROUP_LABEL, type MarketGroup } from "@/lib/markets";
+import { bestTip } from "@/lib/top";
+import { AddToSlip } from "@/components/AddToSlip";
+import { prisma } from "@/lib/db";
+import { europeanHandicap } from "@/lib/model/dixonColes";
+import { cn } from "@/components/ui";
 import { FormStrip } from "@/components/FormStrip";
 import { DataFlags } from "@/components/DataFlags";
 import { CountUp } from "@/components/CountUp";
@@ -33,11 +38,16 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
   const split = (g: Games, teamId: string, venue: "home" | "away") =>
     g.filter((x) => (venue === "home" ? x.homeTeamId : x.awayTeamId) === teamId).slice(0, 5).map((x) => res(x, teamId));
 
+  const quotes = p ? await prisma.oddsQuote.findMany({ where: { fixtureId: fx.id }, orderBy: { fetchedAt: "desc" } }) : [];
+  const oddsOf = (k: string) => quotes.find((q) => q.market === k)?.odds;
+  const open = fx.status === "SCHEDULED" && fx.kickoffUtc > new Date();
+  const markets = p ? allMarkets(p, fx.homeTeam.shortName ?? fx.homeTeam.name, fx.awayTeam.shortName ?? fx.awayTeam.name) : [];
+  const tip = p ? bestTip(p, fx.homeTeam.shortName ?? fx.homeTeam.name, fx.awayTeam.shortName ?? fx.awayTeam.name) : null;
   return (
     <article>
       <Link href={`/league/${fx.leagueId}`} className="focus-ring text-xs text-slate-400 hover:text-slate-200">{fx.league.name}{fx.round ? ` · ${fx.round}` : ""}</Link>
 
-      {/* The one loud moment: the predicted score. */}
+      {/* The one loud moment: the strongest tip (no correct-score call). */}
       <header className="relative mt-3 overflow-hidden rounded-[20px] border hairline bg-[radial-gradient(120%_90%_at_50%_0%,#13203a_0%,#0B1220_55%,#070B14_100%)] px-4 pb-6 pt-5 md:px-8 md:pt-7">
         <div className="flex items-center justify-between text-xs text-slate-400">
           <span className="num">{fmtWat(fx.kickoffUtc, "EEE d MMM, HH:mm")} WAT <span className="text-slate-600">/ {fmtUtc(fx.kickoffUtc)} UTC</span></span>
@@ -45,16 +55,18 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
         </div>
         <div className="mt-6 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
           <h1 className="text-right text-base font-medium leading-tight text-slate-100 md:text-xl">{fx.homeTeam.name}</h1>
-          <div className="text-center">
-            {p ? (
-              <div className="num text-[64px] font-semibold leading-none tracking-tight text-slate-50 md:text-[104px]" aria-label={`Predicted score ${p.predHomeGoals} ${p.predAwayGoals}`}>
-                {p.predHomeGoals}<span className="mx-2 text-slate-600 md:mx-3">–</span>{p.predAwayGoals}
-              </div>
-            ) : <div className="num text-5xl text-slate-600">– –</div>}
-            <div className="mt-1 text-[11px] text-slate-500">{p ? `most likely score, ${pct((p.topScorelines as { p: number }[])[0].p)}` : "no model call yet"}</div>
-          </div>
+          <div className="text-center text-xs text-slate-600">vs</div>
           <h1 className="text-base font-medium leading-tight text-slate-100 md:text-xl">{fx.awayTeam.name}</h1>
         </div>
+        {p && tip && (
+          <div className="mx-auto mt-6 max-w-md rounded-2xl border border-edge/40 bg-edge/[0.07] px-4 py-4 text-center">
+            <div className="text-[11px] uppercase tracking-wide text-edge/80">Best tip · {GROUP_LABEL[tip.group]}</div>
+            <div className="mt-1 text-lg font-medium text-slate-50 md:text-xl">{tip.label}</div>
+            <CountUp value={tip.p} className="num mt-1 block text-5xl font-semibold leading-none text-edge md:text-6xl" />
+            <div className="num mt-2 text-[11px] text-slate-400">fair odds {(1 / tip.p).toFixed(2)}</div>
+          </div>
+        )}
+        {p && !tip && <p className="mx-auto mt-6 max-w-md text-center text-sm text-slate-400">No tip reaches 55% at Medium or High confidence for this match.</p>}
         {p && (
           <>
             <div className="mx-auto mt-7 max-w-xl"><ProbBar home={p.calHome} draw={p.calDraw} away={p.calAway} size="lg" /></div>
@@ -118,13 +130,47 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
             <div className="mt-4 border-t hairline pt-3"><DataFlags flags={p.dataFlags} /></div>
           </Card>
           <Card>
-            <SectionTitle aside="top 5">Scorelines</SectionTitle>
-            <ScoreHeatmap matrix={p.matrix as number[][]} homeName={H} awayName={A} />
-            <ol className="num mt-3 grid grid-cols-5 gap-1 text-center text-xs">
-              {(p.topScorelines as { h: number; a: number; p: number }[]).map((s) => (
-                <li key={`${s.h}-${s.a}`} className="rounded-lg border hairline py-1.5"><div className="text-slate-100">{s.h}–{s.a}</div><div className="text-slate-500">{pct(s.p)}</div></li>
-              ))}
-            </ol>
+            <SectionTitle aside="calibrated probability">All markets</SectionTitle>
+            <div className="space-y-3">
+              {(Object.keys(GROUP_LABEL) as MarketGroup[]).map((g) => {
+                const rows = markets.filter((m) => m.group === g);
+                return (
+                  <div key={g}>
+                    <div className="mb-1 text-[11px] text-slate-500">{GROUP_LABEL[g]}</div>
+                    {rows.length ? (
+                      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                        {rows.map((m) => {
+                          const h = done ? marketHit(m.key, { h: fx.homeGoals!, a: fx.awayGoals!, hc: fx.homeCorners, ac: fx.awayCorners, hs: fx.homeShots, as: fx.awayShots }, { corners: p.cornersLine, shots: p.shotsLine }) : null;
+                          return (
+                            <div key={m.key} className={cn("rounded-lg border px-2.5 py-1.5", tip?.key === m.key ? "border-edge/50 bg-edge/10" : "hairline bg-white/[0.02]")}>
+                              <div className="flex items-start justify-between gap-1">
+                                <div className="truncate text-[11px] text-slate-400" title={m.label}>{m.short}</div>
+                                {open && <AddToSlip fixtureId={fx.id} market={m.key} className="-mr-1 -mt-0.5 scale-90" />}
+                              </div>
+                              <div className="flex items-baseline justify-between">
+                                <span className={cn("num text-sm", m.p >= 0.6 ? "text-edge" : "text-slate-100")}>{pct(m.p)}</span>
+                                {h != null && <span className={cn("text-[10px]", h ? "text-edge" : "text-miss")}>{h ? "hit" : "miss"}</span>}
+                                {h == null && oddsOf(m.key) && <span className={cn("num text-[10px]", m.p * oddsOf(m.key)! - 1 >= 0.03 ? "text-edge" : "text-slate-500")} title="median bookmaker odds">@{oddsOf(m.key)!.toFixed(2)}</span>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : <p className="text-xs text-slate-500">{g === "corners" || g === "shots" ? "Needs match statistics history (API-Football). Appears once 80+ league matches have stats." : "Not available for this match yet."}</p>}
+                    {g === "corners" && p.expCorners != null && <p className="num mt-1 text-[10px] text-slate-500">expected corners {p.expCorners.toFixed(1)}</p>}
+                    {g === "shots" && p.expShots != null && <p className="num mt-1 text-[10px] text-slate-500">expected total shots {p.expShots.toFixed(1)}</p>}
+                    {g === "hcp" && (
+                      <table className="num mt-2 w-full text-[11px]">
+                        <thead className="text-slate-500"><tr><th className="text-left font-normal">European handicap</th><th className="font-normal">{H}</th><th className="font-normal">Draw</th><th className="font-normal">{A}</th></tr></thead>
+                        <tbody>{[-2, -1, 1, 2].map((hc) => { const [x, d, y] = europeanHandicap(p.matrix as number[][], hc); return (
+                          <tr key={hc} className="border-t hairline"><td className="py-1 text-slate-400">{H} {hc > 0 ? `+${hc}` : hc}</td><td className="text-center">{pct(x)}</td><td className="text-center text-slate-400">{pct(d)}</td><td className="text-center">{pct(y)}</td></tr>
+                        ); })}</tbody>
+                      </table>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </Card>
         </div>
       )}
