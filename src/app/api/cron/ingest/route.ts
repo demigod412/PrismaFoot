@@ -12,6 +12,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const p = await getPrimaryProvider();
   if (!p) return NextResponse.json({ mode: "demo", message: "No usable provider key." });
-  try { return NextResponse.json({ ok: true, report: await ingest(prisma, p, { historyDays: 120 }) }); }
+  try { return NextResponse.json({ ok: true, report: await ingest(prisma, p) }); }
   catch (e) { return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 }); }
 }
