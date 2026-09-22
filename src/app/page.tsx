@@ -6,9 +6,11 @@ import { PullToRefresh } from "@/components/PullToRefresh";
 import { SCANNERS, scan, DEFAULT_FLOORS } from "@/lib/scanners";
 import { prisma } from "@/lib/db";
 import { dataMode } from "@/lib/mode";
+import { dayKey, fmtWat } from "@/lib/time";
 
 export default async function Home() {
   const [fixtures, mode] = await Promise.all([next48h(), dataMode()]);
+  const nextUp = fixtures.length ? null : await prisma.fixture.findFirst({ where: { provider: mode.provider, status: "SCHEDULED", kickoffUtc: { gt: new Date() } }, orderBy: { kickoffUtc: "asc" }, include: { league: true } });
   const settled = await prisma.prediction.count({ where: { lockedAt: { not: null }, fixture: { provider: mode.provider, status: "FINISHED" } } });
   const withCalls = fixtures.filter((f) => f.predictions[0]);
   const counts = Object.fromEntries(SCANNERS.filter((s) => s.slug !== "all" && s.slug !== "blend")
@@ -41,8 +43,8 @@ export default async function Home() {
 
       {fixtures.length === 0 ? (
         <EmptyState title="No fixtures in the next 48 hours"
-          body={mode.demo ? "Seed demo data with npm run db:seed, or add a data key." : "Leagues on the allowlist have no matches in this window. Check the 14-day board."}
-          action={{ href: "/fixtures", label: "Open the 14-day board" }} />
+          body={nextUp ? `Next match: ${nextUp.league.name}, ${fmtWat(nextUp.kickoffUtc, "EEE d MMM, HH:mm")} WAT. Leagues pause during international breaks.` : mode.demo ? "Seed demo data with npm run db:seed, or add a data key." : "No upcoming fixtures are stored yet. They appear after the next sync."}
+          action={nextUp ? { href: `/fixtures?date=${dayKey(nextUp.kickoffUtc)}`, label: "Go to that day" } : { href: "/fixtures", label: "Open the fixtures board" }} />
       ) : <FixtureList fixtures={fixtures} />}
     </PullToRefresh>
   );
