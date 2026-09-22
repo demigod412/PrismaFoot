@@ -2,6 +2,7 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import { dataMode } from "./mode";
+import { FIXTURE_WINDOW_DAYS } from "./window";
 
 const DAY = 86_400_000;
 
@@ -54,5 +55,5 @@ export async function next48h() {
 }
 export async function window14d() {
   const now = new Date();
-  return getBoard({ from: new Date(now.getTime() - 2 * 3600_000), to: new Date(now.getTime() + 14 * DAY) });
+  return getBoard({ from: new Date(now.getTime() - 2 * 3600_000), to: new Date(now.getTime() + FIXTURE_WINDOW_DAYS * DAY) });
 }
