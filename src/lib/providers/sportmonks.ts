@@ -44,6 +44,7 @@ export function sportmonks(token: string, base = process.env.SPORTMONKS_BASE_URL
       return r.map<PLeague>((l) => ({ externalId: String(l.id), name: l.name, country: l.country?.name ?? "", code: l.short_code, season: Number(l.currentseason?.name?.slice(0, 4) ?? new Date().getFullYear()) }));
     },
     async getFixtures({ from, to, leagueId }) {
+      if (!from || !to) { const d = new Date(); from = new Date(d.getTime() - 365 * 864e5).toISOString().slice(0, 10); to = new Date(d.getTime() + 14 * 864e5).toISOString().slice(0, 10); }
       return (await get<SmFixture[]>(`/fixtures/between/${from}/${to}`, `${inc}&filters=fixtureLeagues:${leagueId}`)).map(toFx);
     },
     async getFixture(id) {

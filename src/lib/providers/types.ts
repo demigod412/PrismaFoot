@@ -20,7 +20,7 @@ export interface POdds { bookmaker: string; home: number; draw: number; away: nu
 export interface FootballProvider {
   id: ProviderId;
   getLeagues(): Promise<PLeague[]>;
-  getFixtures(q: { from: string; to: string; leagueId: string; season: number }): Promise<PFixture[]>;
+  getFixtures(q: { from?: string; to?: string; leagueId: string; season: number }): Promise<PFixture[]>; // no from/to = whole season
   getFixture(id: string): Promise<PFixture | null>;
   getResults(q: { date: string }): Promise<PFixture[]>;
   getStandings(leagueId: string, season: number): Promise<PStanding[]>;

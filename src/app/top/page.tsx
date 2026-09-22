@@ -13,15 +13,19 @@ export const metadata = { title: "Top 20 tips" };
 const DAY = 86_400_000;
 const windowLabel = (d: number) => (d === 1 ? "Today" : d === 7 ? "Next 7 days" : `Next ${d} days`);
 
-export default async function Top({ searchParams }: { searchParams: Promise<{ days?: string }> }) {
+const FOCUS = [[undefined, "All competitions"], ["international", "International"], ["europe-strong", "Europe strongest"], ["england", "England"]] as const;
+
+export default async function Top({ searchParams }: { searchParams: Promise<{ days?: string; focus?: string }> }) {
   const sp = await searchParams;
   const days = WINDOWS.includes(Number(sp.days) as never) ? Number(sp.days) : 1;
+  const focus = FOCUS.some(([f]) => f === sp.focus) ? sp.focus : undefined;
+  const href = (o: { days?: number; focus?: string | null }) => { const q = new URLSearchParams({ days: String(o.days ?? days) }); const f = o.focus === null ? undefined : o.focus ?? focus; if (f) q.set("focus", f); return `/top?${q}`; };
   const { provider, demo } = await dataMode();
   const now = new Date();
   const end = new Date(watDayStart(dayKey(now)).getTime() + days * DAY); // end of the last WAT day in the window
 
   const fixtures = await prisma.fixture.findMany({
-    where: { provider, status: "SCHEDULED", kickoffUtc: { gt: now, lt: end } },
+    where: { provider, status: "SCHEDULED", kickoffUtc: { gt: now, lt: end }, ...(focus ? { league: { focusGroup: focus } } : {}) },
     include: withLatestPrediction, orderBy: { kickoffUtc: "asc" },
   });
   const ranked = fixtures
@@ -58,13 +62,16 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
       </header>
 
       <nav data-no-ptr aria-label="Time window" className="-mx-4 mb-5 flex gap-1.5 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0">
-        {WINDOWS.map((d) => <Link key={d} href={`/top?days=${d}`}><Chip active={d === days}>{windowLabel(d)}</Chip></Link>)}
+        {WINDOWS.map((d) => <Link key={d} href={href({ days: d })}><Chip active={d === days}>{windowLabel(d)}</Chip></Link>)}
       </nav>
+      <div data-no-ptr className="-mx-4 mb-5 flex gap-1.5 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0">
+        {FOCUS.map(([f, label]) => <Link key={label} href={href({ focus: f ?? null })}><Chip active={focus === f}>{label}</Chip></Link>)}
+      </div>
 
       {ranked.length === 0 ? (
         <EmptyState title={`No qualifying tips ${days === 1 ? "left today" : "in this window"}`}
           body={days === 1 ? "Today's remaining matches have no Medium or High confidence tip at 55% or above. Try a longer window." : "No upcoming matches in this window have a qualifying tip yet."}
-          action={days < 7 ? { href: `/top?days=${Math.min(7, days + 1)}`, label: `Show ${windowLabel(Math.min(7, days + 1)).toLowerCase()}` } : undefined} />
+          action={days < 7 ? { href: href({ days: Math.min(7, days + 1) }), label: `Show ${windowLabel(Math.min(7, days + 1)).toLowerCase()}` } : undefined} />
       ) : (
         <ol className="glass divide-y divide-white/[0.05] px-1 py-1">
           {ranked.map(({ f, t }, i) => {

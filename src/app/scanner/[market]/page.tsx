@@ -18,7 +18,7 @@ export default async function ScannerPage({ params, searchParams }: { params: Pr
   const fixtures = (await getBoard({ from: now, to: new Date(now.getTime() + 14 * 86_400_000), focus })).filter((f) => f.predictions[0]);
   const focusChips = (
     <div className="mb-4 flex gap-1.5">
-      {[[undefined, "All leagues"], ["europe-strong", "Europe strongest"], ["england", "England"]].map(([f, l]) => (
+      {[[undefined, "All leagues"], ["europe-strong", "Europe strongest"], ["england", "England"], ["international", "International"]].map(([f, l]) => (
         <Link key={l} href={f ? `?focus=${f}` : "?"}><Chip active={focus === f}>{l}</Chip></Link>
       ))}
     </div>

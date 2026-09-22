@@ -53,7 +53,7 @@ export function chooseInputKind(ms: HistMatch[]): InputKind {
  *   λ_H = α_H · β_A · γ,   λ_A = α_A · β_H   (exactly the spec's form).
  * Shrinkage: every team gets SHRINK_PSEUDO_MATCHES pseudo-matches at league average.
  */
-export function fitLeague(matches: HistMatch[], asOf: Date, opts: { iterations?: number } = {}): LeagueFit {
+export function fitLeague(matches: HistMatch[], asOf: Date, opts: { iterations?: number; halfLifeDays?: number } = {}): LeagueFit {
   const kind = chooseInputKind(matches);
   const ms = matches.filter((m) => m.date < asOf);
   // Shots → goal-equivalents via league conversion rate.
@@ -68,7 +68,7 @@ export function fitLeague(matches: HistMatch[], asOf: Date, opts: { iterations?:
     : kind === "shots" ? (side === "h" ? m.homeShots! : m.awayShots!) * conv
     : side === "h" ? m.homeGoals : m.awayGoals;
 
-  const w = ms.map((m) => recencyWeight((asOf.getTime() - m.date.getTime()) / 86_400_000));
+  const w = ms.map((m) => recencyWeight((asOf.getTime() - m.date.getTime()) / 86_400_000, opts.halfLifeDays ?? HALF_LIFE_DAYS));
   const ids = new Set<string>();
   ms.forEach((m) => { ids.add(m.homeId); ids.add(m.awayId); });
   const a = new Map<string, number>(); const d = new Map<string, number>();

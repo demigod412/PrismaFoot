@@ -181,8 +181,10 @@ warn "Lightsail has its OWN firewall too: Lightsail console → your instance �
 #  4. DATABASE
 # =============================================================================
 say "Setting up PostgreSQL"
-systemctl enable --now postgresql >/dev/null
-DB_NAME="$APP_NAME"; DB_USER="$APP_NAME"
+systemctl enable --now postgresql >/dev/null 2>&1
+# Postgres names can't contain dashes unquoted: pitchedge-footy → pitchedge_footy
+DB_NAME="${APP_NAME//-/_}"; DB_USER="${APP_NAME//-/_}"
+pushd /tmp >/dev/null   # the postgres user can't read /home/ubuntu; avoids "could not change directory"
 if [[ -f "$STATE_FILE" ]] && grep -q DB_PASS "$STATE_FILE"; then
   # shellcheck disable=SC1090
   DB_PASS=$(. "$STATE_FILE"; echo "$DB_PASS")
@@ -200,6 +202,7 @@ END \$\$;
 SQL
 sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'" | grep -q 1 \
   || sudo -u postgres createdb -O "$DB_USER" "$DB_NAME"
+popd >/dev/null
 ok "Database '$DB_NAME' ready (listening on localhost only)"
 
 # =============================================================================
@@ -301,7 +304,7 @@ CRON_FILE="/etc/cron.d/$APP_NAME"
   if [[ -f "$APP_DIR/vercel.json" ]]; then
     node -e '
       const v = require(process.argv[1]); const [port, secret] = [process.argv[2], process.argv[3]];
-      for (const c of v.crons || []) console.log(`${c.schedule} root curl -fsS -m 290 -H "Authorization: Bearer ${secret}" "http://127.0.0.1:${port}${c.path}" >> /var/log/'"$APP_NAME"'-cron.log 2>&1`);
+      for (const c of v.crons || []) console.log(`${c.schedule} root curl -fsS -m 3600 -H "Authorization: Bearer ${secret}" "http://127.0.0.1:${port}${c.path}" >> /var/log/'"$APP_NAME"'-cron.log 2>&1`);
     ' "$APP_DIR/vercel.json" "$PORT" "$CRON_SECRET"
   fi
 } > "$CRON_FILE"

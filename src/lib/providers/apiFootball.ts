@@ -41,7 +41,7 @@ export function apiFootball(opts: { key?: string; rapidKey?: string; rapidHost?:
     id: "api-football",
     async getLeagues() {
       const r = await get<{ league: { id: number; name: string; type: string }; country: { name: string }; seasons: { year: number; current: boolean }[] }[]>("/leagues?current=true");
-      return r.filter((l) => l.league.type === "League").map<PLeague>((l) => ({
+      return r.map<PLeague>((l) => ({
         externalId: String(l.league.id), name: l.league.name, country: l.country.name,
         season: l.seasons.find((s) => s.current)?.year ?? new Date().getFullYear(),
       }));

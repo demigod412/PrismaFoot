@@ -37,8 +37,9 @@ export function footballData(key: string, base = process.env.FOOTBALL_DATA_BASE_
         season: Number(c.currentSeason!.startDate.slice(0, 4)),
       }));
     },
-    async getFixtures({ from, to, leagueId }) {
-      const r = await get<{ matches: FdMatch[] }>(`/competitions/${leagueId}/matches?dateFrom=${from}&dateTo=${to}`);
+    async getFixtures({ from, to, leagueId, season }) {
+      const q = from && to ? `dateFrom=${from}&dateTo=${to}` : `season=${season}`;
+      const r = await get<{ matches: FdMatch[] }>(`/competitions/${leagueId}/matches?${q}`);
       return r.matches.map(toFx);
     },
     async getFixture(id) {

@@ -1,12 +1,11 @@
 import type { PrismaClient, Provider } from "@prisma/client";
-import { addDays, format } from "date-fns";
+import { addDays } from "date-fns";
 import type { FootballProvider, PFixture } from "../providers/types";
 import { PROVIDER_ENUM, THROTTLE_MS } from "../providers";
-import { LEAGUE_ALLOWLIST } from "../leagues";
+import { LEAGUE_ALLOWLIST, POOL_SETTINGS } from "../leagues";
 import { rateAndPredictLeague } from "./predict";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const ymd = (d: Date) => format(d, "yyyy-MM-dd");
 
 async function upsertTeam(db: PrismaClient, provider: Provider, leagueId: string, t: PFixture["home"]) {
   return db.team.upsert({
@@ -28,27 +27,28 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
   const report: Record<string, unknown> = {};
   try {
     const leagues = (await p.getLeagues()).filter((l) => allow.some((a) => a.id === l.externalId));
+    let injuryCalls = 0;
     for (const l of leagues) {
-      const focus = allow.find((a) => a.id === l.externalId)?.focus ?? null;
+      const entry = allow.find((a) => a.id === l.externalId)!;
+      const pool = entry.pool ? POOL_SETTINGS[entry.pool] : undefined;
       const league = await db.league.upsert({
         where: { provider_externalId_season: { provider, externalId: l.externalId, season: l.season } },
-        update: { name: l.name, country: l.country, code: l.code, focusGroup: focus },
-        create: { provider, externalId: l.externalId, name: l.name, country: l.country, code: l.code, season: l.season, focusGroup: focus },
+        update: { name: l.name, country: l.country, code: l.code, focusGroup: entry.focus, ratingPool: entry.pool ?? null, neutral: !!entry.neutral },
+        create: { provider, externalId: l.externalId, name: l.name, country: l.country, code: l.code, season: l.season, focusGroup: entry.focus, ratingPool: entry.pool ?? null, neutral: !!entry.neutral },
       });
-      // Chunk the window: football-data caps date ranges; 30-day chunks work for all three providers.
+      // Whole seasons in one request each (current + previous; 3 seasons for national teams).
       const fixtures: PFixture[] = [];
-      const start = addDays(now, -(opts.historyDays ?? 365));
-      for (let from = start; from < addDays(now, 14); from = addDays(from, 30)) {
-        const to = addDays(from, 29) > addDays(now, 14) ? addDays(now, 14) : addDays(from, 29);
-        const seasons = [l.season, l.season - 1];
-        for (const season of seasons) {
-          try { fixtures.push(...(await p.getFixtures({ from: ymd(from), to: ymd(to), leagueId: l.externalId, season }))); } catch { /* season may not exist */ }
-          await sleep(THROTTLE_MS[p.id]);
-          if (p.id === "football-data") break; // season param ignored there
-        }
+      const errors: string[] = [];
+      for (let k = 0; k < (pool?.seasons ?? 2); k++) {
+        try { fixtures.push(...(await p.getFixtures({ leagueId: l.externalId, season: l.season - k }))); }
+        catch (e) { errors.push(`${l.season - k}: ${(e as Error).message}`); }
+        await sleep(THROTTLE_MS[p.id]);
       }
+      const oldest = addDays(now, -(pool?.historyDays ?? opts.historyDays ?? 450)).getTime();
+      const keep = fixtures.filter((f) => f.kickoffUtc.getTime() >= oldest && f.kickoffUtc.getTime() <= addDays(now, 14).getTime());
+      if (!keep.length) { report[l.name] = { fixtures: 0, errors }; continue; } // don't mark synced when nothing came back
       const seen = new Set<string>();
-      for (const f of fixtures) {
+      for (const f of keep) {
         if (seen.has(f.externalId)) continue; seen.add(f.externalId);
         const [h, a] = await Promise.all([upsertTeam(db, provider, league.id, f.home), upsertTeam(db, provider, league.id, f.away)]);
         const data = {
@@ -59,10 +59,12 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
         await db.fixture.upsert({ where: { provider_externalId: { provider, externalId: f.externalId } }, update: data, create: { provider, externalId: f.externalId, ...data } });
       }
       await db.league.update({ where: { id: league.id }, data: { lastSyncAt: new Date() } });
-      report[l.name] = await rateAndPredictLeague(db, league.id, {
+      report[l.name] = { fixtures: keep.length, ...(errors.length ? { errors } : {}), ...await rateAndPredictLeague(db, league.id, {
         now,
         newsLoader: async (fx) => {
-          if (fx.kickoffUtc.getTime() - now.getTime() > 48 * 3600_000) return null; // only fetch news close to kickoff
+          if (fx.kickoffUtc.getTime() - now.getTime() > 24 * 3600_000) return null; // only fetch news close to kickoff
+          if (injuryCalls >= (Number(process.env.MAX_INJURY_CALLS) || 25)) return null; // protect the daily quota
+          injuryCalls++;
           const inj = await p.getInjuries(fx.externalId);
           await sleep(THROTTLE_MS[p.id]);
           if (!inj) return null; // unsupported ⇒ missing_news, never invented
@@ -72,7 +74,7 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
           void inj;
           return { home: { confirmedStarterAbsences: 0 }, away: { confirmedStarterAbsences: 0 } };
         },
-      });
+      }) };
     }
     await db.syncLog.update({ where: { id: log.id }, data: { ok: true, finishedAt: new Date(), message: JSON.stringify(report).slice(0, 2000) } });
     return report;

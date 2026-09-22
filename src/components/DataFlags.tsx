@@ -5,6 +5,7 @@ const TEXT: Record<string, string> = {
   goals_only_ratings: "Ratings built from goals (no xG feed)",
   new_team_home: "Home side has no history here; league average used",
   new_team_away: "Away side has no history here; league average used",
+  neutral_venue: "Tournament match at a neutral venue: no home advantage applied",
   low_band_capped: "Low confidence: displayed probabilities capped below 90%",
 };
 export function DataFlags({ flags }: { flags: string[] }) {

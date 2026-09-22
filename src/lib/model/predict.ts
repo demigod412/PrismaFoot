@@ -17,6 +17,7 @@ export interface PredictInput {
   newsHome: NewsInput | null; newsAway: NewsInput | null; // null = not fetched
   formHome: string; formAway: string;
   calibrators?: CalibratorSet; calibrationResidual?: number;
+  neutral?: boolean; // tournament finals at neutral venues: no home advantage
 }
 
 export interface PredictOutput {
@@ -53,7 +54,8 @@ export function predictFixture(inp: PredictInput): PredictOutput {
   if (Math.min(th.sampleWeight, ta.sampleWeight) < 6) flags.push("thin_sample");
   if (inp.fit.inputKind === "goals") flags.push("goals_only_ratings");
 
-  const g = inp.fit.homeAdv;
+  const g = inp.neutral ? 1 : inp.fit.homeAdv;
+  if (inp.neutral) flags.push("neutral_venue");
   const lambdaHome = th.attack * ta.defence * g * phiRest(inp.restHomeDays) * phiNews(inp.newsHome);
   const lambdaAway = ta.attack * th.defence * phiRest(inp.restAwayDays) * phiNews(inp.newsAway);
   const rho = inp.fit.rho;
