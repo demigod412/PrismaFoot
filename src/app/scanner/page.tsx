@@ -5,7 +5,7 @@ export default function Scanners() {
   return (
     <>
       <h1 className="mb-1 text-2xl font-semibold tracking-tight">Scanners</h1>
-      <p className="mb-5 text-sm text-slate-400">Filters over the same calibrated probabilities everyone sees, across the next 14 days. Floors are editable in Settings.</p>
+      <p className="mb-5 text-sm text-slate-400">Filters over the same calibrated probabilities everyone sees, across the upcoming fixture window (3 weeks). Floors are editable in Settings.</p>
       <ul className="grid gap-2 sm:grid-cols-2">
         {SCANNERS.map((s) => (
           <li key={s.slug}>
