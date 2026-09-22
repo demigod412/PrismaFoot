@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.7.2
+- Fix: football-data.org "429" errors during a sync (its free tier allows 10 requests per minute, and the extra league pushed past it). A rate-limited request now waits for the provider's own window — `Retry-After`, or a full minute — instead of retrying after one second, and requests are spaced 7.2s apart. Seasons that were skipped with a 429 load on the next sync.
+
 ## 0.7.1 — many more leagues, calmer screens
 - **~50 more competitions** are synced when your plan includes them (API-Football): Scotland, Belgium, Turkey, Greece, Switzerland, Austria, Denmark, Norway, Sweden, Finland, Iceland, Poland, Czechia, Slovakia, Hungary, Romania, Bulgaria, Croatia, Serbia, Slovenia, Ukraine, Russia, Cyprus, Israel, Ireland, Bosnia, plus Saudi Arabia, UAE, Qatar, Japan, South Korea, China, Australia, India, Brazil (A and B), Argentina, Mexico, MLS, Chile, Colombia, Uruguay, Peru, Ecuador, Egypt, Morocco, Algeria, Tunisia, South Africa, Ghana, Kenya, CAF Champions League, Copa Libertadores and Sudamericana.
   Leagues are matched by **country + name** rather than a fixed id, so they work on any plan without hunting for league numbers, and European leagues feed the shared club-strength pool.

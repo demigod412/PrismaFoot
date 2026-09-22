@@ -211,3 +211,25 @@ describe("access code tokens", () => {
     expect((await readToken(undefined, "secret-a")).valid).toBe(false);
   });
 });
+
+describe("provider rate limits", () => {
+  it("waits for the provider's window on 429 and then succeeds", async () => {
+    const { fetchJson } = await import("@/lib/providers/http");
+    const waits: number[] = [];
+    const realTimeout = globalThis.setTimeout;
+    // @ts-expect-error test double: run timers immediately but record the delay asked for
+    globalThis.setTimeout = ((fn: () => void, ms: number) => { waits.push(ms); return realTimeout(fn, 0); }) as typeof setTimeout;
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return calls === 1
+        ? new Response("rate limit", { status: 429, headers: { "Retry-After": "20" } })
+        : new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as typeof fetch;
+    const out = await fetchJson<{ ok: boolean }>("football-data", "https://example.test/x", {});
+    globalThis.setTimeout = realTimeout;
+    expect(out.ok).toBe(true);
+    expect(calls).toBe(2);
+    expect(waits.some((w) => w >= 21_000)).toBe(true); // honoured Retry-After, not a 1-second retry
+  });
+});

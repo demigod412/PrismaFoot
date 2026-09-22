@@ -4,17 +4,23 @@ export class ProviderError extends Error {
   constructor(public provider: string, public status: number, message: string) { super(message); }
 }
 
-/** Server-side JSON fetch: 12s timeout, 2 retries with backoff on 429/5xx, no Next data cache. */
+/**
+ * Server-side JSON fetch: 12s timeout, no Next data cache.
+ * 5xx → short backoff. 429 → wait for the provider's own window (Retry-After, else a full minute),
+ * because football-data.org counts 10 requests per MINUTE: a 1-second retry is always rejected again.
+ */
 export async function fetchJson<T>(provider: string, url: string, headers: Record<string, string>): Promise<T> {
   let last: unknown;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 4; attempt++) {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 12_000);
     try {
       const res = await fetch(url, { headers, signal: ctl.signal, cache: "no-store" });
       if (res.status === 429 || res.status >= 500) {
         last = new ProviderError(provider, res.status, `${provider} ${res.status}`);
-        await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+        const retryAfter = Number(res.headers.get("Retry-After")) || 0;
+        const wait = res.status === 429 ? Math.min(90_000, (retryAfter ? retryAfter + 1 : 62) * 1000) : 1000 * 2 ** attempt;
+        await new Promise((r) => setTimeout(r, wait));
         continue;
       }
       if (!res.ok) throw new ProviderError(provider, res.status, `${provider} ${res.status}: ${(await res.text()).slice(0, 200)}`);
