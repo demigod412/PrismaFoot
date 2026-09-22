@@ -69,6 +69,7 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
         const data = {
           leagueId: league.id, season: f.season, round: f.round, kickoffUtc: f.kickoffUtc, status: f.status,
           homeTeamId: h.id, awayTeamId: a.id, homeGoals: f.homeGoals ?? null, awayGoals: f.awayGoals ?? null,
+          ...(f.htHome != null && f.htAway != null ? { htHome: f.htHome, htAway: f.htAway } : {}),
           venue: f.venue,
           // only overwrite stats the provider actually sent (don't wipe backfilled corners/shots)
           ...(f.homeXg != null ? { homeXg: f.homeXg, awayXg: f.awayXg } : {}),

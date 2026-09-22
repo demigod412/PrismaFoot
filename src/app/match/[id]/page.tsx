@@ -172,7 +172,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                     {rows.length ? (
                       <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
                         {rows.map((m) => {
-                          const h = done ? marketHit(m.key, { h: fx.homeGoals!, a: fx.awayGoals!, hc: fx.homeCorners, ac: fx.awayCorners, hs: fx.homeShots, as: fx.awayShots }, { corners: p.cornersLine, shots: p.shotsLine }) : null;
+                          const h = done ? marketHit(m.key, { h: fx.homeGoals!, a: fx.awayGoals!, hc: fx.homeCorners, ac: fx.awayCorners, hs: fx.homeShots, as: fx.awayShots, hh: fx.htHome, ha: fx.htAway }, { corners: p.cornersLine, shots: p.shotsLine }) : null;
                           return (
                             <div key={m.key} className={cn("rounded-lg border px-2.5 py-1.5", tip?.key === m.key ? "border-edge/50 bg-edge/10" : "hairline bg-white/[0.02]")}>
                               <div className="flex items-start justify-between gap-1">

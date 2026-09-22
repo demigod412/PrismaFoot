@@ -96,6 +96,30 @@ export function winByAtLeast(m: Matrix, k: number) {
   return { home, away };
 }
 
+/**
+ * Half markets from the full-time matrix: each goal falls in the first half independently with probability s
+ * (league-fitted share, ~0.45). 1H total | T ~ Binomial(T, s); 2H total | T ~ Binomial(T, 1 − s).
+ */
+export function halfUnders(m: Matrix, s: number) {
+  const pT: number[] = [];
+  m.forEach((row, i) => row.forEach((p, j) => { pT[i + j] = (pT[i + j] ?? 0) + p; }));
+  const binomCdf = (k: number, n: number, q: number) => { let c = 0, t = Math.pow(1 - q, n); for (let x = 0; x <= Math.min(k, n); x++) { c += t; t *= ((n - x) / (x + 1)) * (q / (1 - q)); } return c; };
+  let h1u15 = 0, h1u25 = 0, h2u25 = 0;
+  pT.forEach((p, n) => { if (!p) return; h1u15 += p * binomCdf(1, n, s); h1u25 += p * binomCdf(2, n, s); h2u25 += p * binomCdf(2, n, 1 - s); });
+  return { h1u15, h1u25, h2u25 };
+}
+
+/** P(side wins OR 3+ goals) — "win or over 2.5". */
+export function winOrOver(m: Matrix, line = 2.5) {
+  let home = 0, away = 0, homeAndOver = 0, awayAndOver = 0;
+  m.forEach((row, i) => row.forEach((p, j) => {
+    const over = i + j > line;
+    if (i > j || over) home += p; if (j > i || over) away += p;
+    if (i > j && over) homeAndOver += p; if (j > i && over) awayAndOver += p;
+  }));
+  return { home, away, homeAndOver, awayAndOver };
+}
+
 /** European handicap on the HOME side: result of (home + h) vs away → [home, draw, away] probabilities. */
 export function europeanHandicap(m: number[][], h: number): [number, number, number] {
   let a = 0, d = 0, b = 0;

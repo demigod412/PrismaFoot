@@ -139,3 +139,37 @@ describe("date param", () => {
     for (const bad of ["2026-13-45", "2026-02-30", "garbage", "", undefined, "2026-1-5"]) expect(isDayKey(bad as string)).toBe(false);
   });
 });
+
+import { halfUnders, winOrOver, scoreMatrix } from "@/lib/model/dixonColes";
+import { marketHit } from "@/lib/markets";
+import { bestTip, selectTop, tipsFor } from "@/lib/top";
+describe("halves and win-or-over", () => {
+  const m = scoreMatrix(1.5, 1.1, -0.08);
+  it("half unders are coherent", () => {
+    const h = halfUnders(m, 0.45);
+    expect(h.h1u15).toBeLessThan(h.h1u25);
+    expect(h.h1u25).toBeGreaterThan(h.h2u25); // fewer goals before half-time
+    expect(h.h1u15).toBeGreaterThan(0.5); expect(h.h1u25).toBeLessThan(0.97);
+  });
+  it("win or over ≥ each of its parts", () => {
+    const w = winOrOver(m); let home = 0, over = 0; m.forEach((r, i) => r.forEach((p, j) => { if (i > j) home += p; if (i + j >= 3) over += p; }));
+    expect(w.home).toBeGreaterThanOrEqual(Math.max(home, over) - 1e-12); expect(w.home).toBeLessThanOrEqual(home + over + 1e-12);
+  });
+  it("scores halves from the half-time result; unscorable without it", () => {
+    expect(marketHit("h1_under15", { h: 3, a: 1, hh: 1, ha: 0 })).toBe(true);
+    expect(marketHit("h2_under25", { h: 3, a: 1, hh: 1, ha: 0 })).toBe(false); // 3 second-half goals
+    expect(marketHit("h1_under25", { h: 2, a: 2 })).toBeNull();
+    expect(marketHit("away_or_over25", { h: 2, a: 1 })).toBe(true);
+    expect(marketHit("home_or_over25", { h: 0, a: 1 })).toBe(false);
+  });
+  const pred = (x: Record<string, number>) => ({ band: "MEDIUM", confidence: 60, calHome: 0.4, calDraw: 0.3, calAway: 0.3, calOver15: 0.6, calOver25: 0.4, calOver35: 0.2, calOver45: 0.08, calBtts: 0.45,
+    calH1Under15: 0.7, calH1Under25: 0.9, calH2Under25: 0.86, calHomeOrOver25: 0.6, calAwayOrOver25: 0.55, ...x }) as never;
+  it("headline never 1H / 2H Under 2.5; Top 20 allows only one of them", () => {
+    const t = bestTip(pred({}), "H", "A")!;
+    expect(["h1_under25", "h2_under25", "under45"]).not.toContain(t.key);
+    expect(t.key).toBe("under35"); // strongest allowed market (U3.5 80%) — 1H U2.5 at 90% is skipped
+    const items = Array.from({ length: 6 }, (_, i) => ({ item: i, id: String(i), startMs: i, tips: tipsFor(pred({ calH1Under15: 0.5 }), "H", "A") }));
+    const top = selectTop(items);
+    expect(top.filter((x) => x.tip.key === "h1_under25" || x.tip.key === "h2_under25")).toHaveLength(1);
+  });
+});

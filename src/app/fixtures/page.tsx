@@ -15,6 +15,7 @@ const MARKETS: { slug: ScannerSlug; label: string }[] = [
   { slug: "all", label: "All" }, { slug: "win", label: "Win" }, { slug: "o15", label: "O1.5" }, { slug: "o25", label: "O2.5" },
   { slug: "dc", label: "Double chance" }, { slug: "btts", label: "BTTS" }, { slug: "bttsno", label: "BTTS No" }, { slug: "by2", label: "Win by 2+" },
   { slug: "corners", label: "Corners" }, { slug: "shots", label: "Shots" }, { slug: "u25", label: "U2.5" }, { slug: "u35", label: "U3.5" }, { slug: "u45", label: "U4.5" },
+  { slug: "h1u15", label: "1H U1.5" }, { slug: "h1u25", label: "1H U2.5" }, { slug: "h2u25", label: "2H U2.5" }, { slug: "winover", label: "Win or O2.5" },
   { slug: "draw", label: "Draw" }, { slug: "safe", label: "Safe" },
 ];
 

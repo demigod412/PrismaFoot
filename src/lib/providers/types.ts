@@ -7,6 +7,7 @@ export interface PFixture {
   externalId: string; leagueExternalId: string; season: number; round?: string;
   kickoffUtc: Date; status: FxStatus; home: PTeam; away: PTeam;
   homeGoals?: number | null; awayGoals?: number | null;
+  htHome?: number | null; htAway?: number | null;
   homeXg?: number | null; awayXg?: number | null;
   homeShots?: number | null; awayShots?: number | null; venue?: string;
 }

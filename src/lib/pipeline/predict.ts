@@ -42,6 +42,7 @@ export interface LeagueContext {
   cornerFit: RateFit | null;
   shotFit: RateFit | null;
   cal: CalibratorSet; residual: number;
+  h1Share: number;
   priorKeys: Set<string>;
   seasonCount: Map<string, number>; // matches this season per team key
 }
@@ -131,9 +132,13 @@ export async function buildContext(db: PrismaClient, leagueId: string, now: Date
     return h != null && a != null ? [{ homeId: key(f.homeTeam), awayId: key(f.awayTeam), date: f.kickoffUtc, h, a }] : [];
   });
   const cornerMs = rateSet("Corners"), shotMs = rateSet("Shots");
+  // Share of goals scored in the first half (league-fitted; shrunk to 45% with 200 pseudo-goals)
+  const ht = hist.filter((f) => f.htHome != null && f.htAway != null);
+  const htGoals = ht.reduce((s, f) => s + f.htHome! + f.htAway!, 0), ftGoals = ht.reduce((s, f) => s + f.homeGoals! + f.awayGoals!, 0);
+  const h1Share = (htGoals + 0.45 * 200) / (ftGoals + 200);
   const { set, residual } = await loadCalibrators(db, league.provider);
   return {
-    league, now, key, hist, fit,
+    league, now, key, hist, fit, h1Share,
     cornerFit: cornerMs.length >= MIN_RATE_MATCHES ? fitRates(cornerMs, now) : null,
     shotFit: shotMs.length >= MIN_RATE_MATCHES ? fitRates(shotMs, now) : null,
     cal: set, residual, priorKeys: new Set(priors.keys()), seasonCount,
@@ -166,7 +171,7 @@ export async function writePrediction(db: PrismaClient, ctx: LeagueContext, fx: 
     newsHome: opts.news?.home ?? null, newsAway: opts.news?.away ?? null,
     formHome: form(hk), formAway: form(ak),
     calibrators: ctx.cal, calibrationResidual: ctx.residual, neutral: ctx.league.neutral,
-    earlySeason: early, priorHome: ctx.priorKeys.has(hk), priorAway: ctx.priorKeys.has(ak),
+    earlySeason: early, priorHome: ctx.priorKeys.has(hk), priorAway: ctx.priorKeys.has(ak), h1Share: ctx.h1Share,
   });
   const corners = ctx.cornerFit ? predictTotal(ctx.cornerFit, hk, ak, CORNERS_LINE) : null;
   const shots = ctx.shotFit ? predictTotal(ctx.shotFit, hk, ak, SHOTS_LINE) : null;
@@ -174,7 +179,7 @@ export async function writePrediction(db: PrismaClient, ctx: LeagueContext, fx: 
   if (!corners) out.dataFlags.push("no_corner_data");
   if (!shots) out.dataFlags.push("no_shot_data");
   // New revision only when inputs changed, or corners/shots became available
-  if (prev && prev.inputsHash === out.inputsHash && (prev.expCorners != null) === !!corners && (prev.expShots != null) === !!shots) return false;
+  if (prev && prev.inputsHash === out.inputsHash && (prev.expCorners != null) === !!corners && (prev.expShots != null) === !!shots && prev.calH1Under15 != null) return false;
 
   await db.prediction.create({ data: {
     fixtureId: fx.id, modelVersion: out.modelVersion, revision: (prev?.revision ?? 0) + 1, inputsHash: out.inputsHash,
@@ -186,6 +191,8 @@ export async function writePrediction(db: PrismaClient, ctx: LeagueContext, fx: 
     predHomeGoals: out.predHomeGoals, predAwayGoals: out.predAwayGoals,
     topScorelines: out.topScorelines as unknown as Prisma.InputJsonValue, matrix: out.matrix,
     rawHomeBy2: out.rawBy2.home, rawAwayBy2: out.rawBy2.away, calHomeBy2: capLow(out.calBy2.home), calAwayBy2: capLow(out.calBy2.away),
+    calH1Under15: out.halves.h1u15, calH1Under25: out.halves.h1u25, calH2Under25: out.halves.h2u25, h1Share: out.halves.share,
+    calHomeOrOver25: out.winOrOver.cal.home, calAwayOrOver25: out.winOrOver.cal.away,
     ...(corners ? { cornersLine: CORNERS_LINE, expCorners: corners.expected, rawCornersOver: corners.over, calCornersOver: capLow(corners.over) } : {}),
     ...(shots ? { shotsLine: SHOTS_LINE, expShots: shots.expected, rawShotsOver: shots.over, calShotsOver: capLow(shots.over) } : {}),
     confidence: out.confidence, band: out.band, dataFlags: out.dataFlags,

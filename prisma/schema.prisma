@@ -94,6 +94,8 @@ model Fixture {
   awayTeam     Team          @relation("away", fields: [awayTeamId], references: [id])
   homeGoals    Int?          // FT score mirror for fast queries; Result is the ledger
   awayGoals    Int?
+  htHome       Int?          // half-time score (first half); second half = FT − HT
+  htAway       Int?
   homeXg       Float?
   awayXg       Float?
   homeShots    Int?
@@ -167,6 +169,12 @@ model Prediction {
   rawHomeBy2    Float?
   rawAwayBy2    Float?
   calHomeBy2    Float?
+  calH1Under15  Float?   // first half Under 1.5 (model; not yet calibrated)
+  calH1Under25  Float?
+  calH2Under25  Float?   // second half Under 2.5
+  calHomeOrOver25 Float? // home win OR over 2.5
+  calAwayOrOver25 Float?
+  h1Share       Float?   // share of goals in the first half used
   calAwayBy2    Float?
   // Corners and total shots (separate count models; null when there isn't enough stats history)
   cornersLine   Float?
@@ -208,6 +216,8 @@ model Result {
   supersedesId String?  // correction chain; never delete
 
   @@index([fixtureId, settledAt])
+  htHome       Int?
+  htAway       Int?
 }
 
 model CalibrationModel {

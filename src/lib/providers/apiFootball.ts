@@ -8,6 +8,7 @@ type AfFixture = {
   fixture: { id: number; date: string; status: { short: string }; venue?: { name?: string } };
   league: { id: number; season: number; round?: string };
   teams: { home: { id: number; name: string; logo?: string }; away: { id: number; name: string; logo?: string } };
+  score?: { halftime?: { home: number | null; away: number | null } };
   goals: { home: number | null; away: number | null };
 };
 type Resp<T> = { response: T; errors?: Record<string, string> | unknown[] };
@@ -36,6 +37,7 @@ export function apiFootball(opts: { key?: string; rapidKey?: string; rapidHost?:
     home: { externalId: String(f.teams.home.id), name: f.teams.home.name, crestUrl: f.teams.home.logo },
     away: { externalId: String(f.teams.away.id), name: f.teams.away.name, crestUrl: f.teams.away.logo },
     homeGoals: f.goals.home, awayGoals: f.goals.away,
+    htHome: f.score?.halftime?.home ?? null, htAway: f.score?.halftime?.away ?? null,
   });
 
   return {

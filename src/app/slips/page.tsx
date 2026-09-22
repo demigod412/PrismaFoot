@@ -24,7 +24,7 @@ export default async function Slips() {
       const f = fixtures.find((x) => x.id === l.fixtureId), p = f?.predictions[0];
       const live = p ? allMarkets(p, "Home", "Away").find((m) => m.key === l.market)?.p ?? l.p : l.p;
       const done = f?.status === "FINISHED" && f.homeGoals != null;
-      const hit = done ? marketHit(l.market, { h: f!.homeGoals!, a: f!.awayGoals!, hc: f!.homeCorners, ac: f!.awayCorners, hs: f!.homeShots, as: f!.awayShots }, { corners: p?.cornersLine, shots: p?.shotsLine }) : null;
+      const hit = done ? marketHit(l.market, { h: f!.homeGoals!, a: f!.awayGoals!, hc: f!.homeCorners, ac: f!.awayCorners, hs: f!.homeShots, as: f!.awayShots, hh: f!.htHome, ha: f!.htAway }, { corners: p?.cornersLine, shots: p?.shotsLine }) : null;
       return { ...l, p: live, band: p?.band ?? l.band, started: !!f && f.kickoffUtc <= new Date(), result: done ? `${f!.homeGoals}–${f!.awayGoals}` : null, hit };
     }),
   }));

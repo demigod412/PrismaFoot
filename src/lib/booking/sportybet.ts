@@ -15,7 +15,7 @@ const HEADERS = {
   Accept: "application/json", "Content-Type": "application/json", "Current-Country": REGION.toUpperCase(),
   "User-Agent": "Mozilla/5.0 (PitchEdge booking helper)",
 };
-const MARKET_IDS = "1,10,18,29,16,14,166";
+const MARKET_IDS = "1,10,18,29,16,14,166,68,90";
 
 interface SbOutcome { id: string; desc: string; odds?: string; isActive?: number }
 interface SbMarket { id: string; desc?: string; specifier?: string; status?: number; outcomes?: SbOutcome[] }
@@ -78,6 +78,10 @@ export function resolveSelection(e: SbEvent, key: MarketKey): Selection | { erro
     case "away_by2": return pick(ms.find((m) => m.id === "16" && m.specifier === "hcp=1.5"), (o) => has(o.desc, "away") || o.id === "1715");
     case "corners_over": return pick(ms.find((m) => has(m.desc, "corner") && m.specifier === "total=8.5"), (o) => has(o.desc, "over"));
     case "corners_under": return pick(ms.find((m) => has(m.desc, "corner") && m.specifier === "total=8.5"), (o) => has(o.desc, "under"));
+    case "h1_under15": return pick(ms.find((m) => m.id === "68" && m.specifier === "total=1.5"), (o) => has(o.desc, "under"));
+    case "h1_under25": return pick(ms.find((m) => m.id === "68" && m.specifier === "total=2.5"), (o) => has(o.desc, "under"));
+    case "h2_under25": return pick(ms.find((m) => m.id === "90" && m.specifier === "total=2.5"), (o) => has(o.desc, "under"));
+    case "home_or_over25": case "away_or_over25": return { error: "\"win or over\" isn't offered as one selection on Sportybet" };
     default: return { error: "market not supported by Sportybet export" };
   }
 }

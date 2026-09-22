@@ -68,6 +68,8 @@ export async function seedDemo(db: PrismaClient, now = new Date()) {
         provider: "DEMO", externalId: `${L.code}-${k}`, leagueId: league.id, season, round: `Round ${r + 1}`,
         kickoffUtc: kickoff, status: past ? "FINISHED" : "SCHEDULED", homeTeamId: teams[hi].id, awayTeamId: teams[ai].id,
         homeGoals: hg, awayGoals: ag,
+        // Demo half-times: each goal lands in the first half with probability 0.45
+        ...(past ? { htHome: [...Array(hg!)].filter(() => rng() < 0.45).length, htAway: [...Array(ag!)].filter(() => rng() < 0.45).length } : {}),
         // Demo stats: stronger attacks win more corners and take more shots
         ...(past ? {
           homeCorners: poissonSample(rng, 5.3 * truth[hi].a ** 0.6 * truth[ai].d ** 0.4), awayCorners: poissonSample(rng, 4.4 * truth[ai].a ** 0.6 * truth[hi].d ** 0.4),

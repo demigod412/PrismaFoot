@@ -1,5 +1,5 @@
 import { LOW_BAND_DISPLAY_CAP, MODEL_VERSION } from "./constants";
-import { marketsFromMatrix, scoreMatrix, topScorelines, truncateMatrix, winByAtLeast, type Markets, type Scoreline } from "./dixonColes";
+import { marketsFromMatrix, scoreMatrix, topScorelines, truncateMatrix, winByAtLeast, type Markets, type Scoreline, halfUnders, winOrOver } from "./dixonColes";
 import { priorRating, type LeagueFit, type TeamRating } from "./ratings";
 import { apply, calibrate1x2, IDENTITY_SET, type CalibratorSet } from "./calibration";
 import { confidenceScore, type Band } from "./confidence";
@@ -20,6 +20,7 @@ export interface PredictInput {
   neutral?: boolean; // tournament finals at neutral venues: no home advantage
   earlySeason?: boolean; // either side has < 6 matches this season
   priorHome?: boolean; priorAway?: boolean; // rating leans on a promoted/relegated prior
+  h1Share?: number; // share of goals scored in the first half (league-fitted); default 0.45
 }
 
 export interface PredictOutput {
@@ -28,6 +29,8 @@ export interface PredictOutput {
   lambdaHome: number; lambdaAway: number; rho: number;
   raw: Markets; cal: Markets;
   rawBy2: { home: number; away: number }; calBy2: { home: number; away: number };
+  halves: { h1u15: number; h1u25: number; h2u25: number; share: number };
+  winOrOver: { raw: { home: number; away: number }; cal: { home: number; away: number } };
   predHomeGoals: number; predAwayGoals: number;
   topScorelines: Scoreline[];
   matrix: number[][];
@@ -91,7 +94,20 @@ export function predictFixture(inp: PredictInput): PredictOutput {
 
   // Win-by-2 is scaled with the calibrated win probability of the same side (keeps it consistent with 1X2).
   const calBy2 = { home: raw.home > 0 ? rawBy2.home * (cal.home / raw.home) : 0, away: raw.away > 0 ? rawBy2.away * (cal.away / raw.away) : 0 };
-  if (band === "LOW") capLow(cal, flags);
+  // Win or Over 2.5: P(W) + P(O) − P(W ∩ O), with calibrated marginals and the model's P(O | W).
+  const wo = winOrOver(m);
+  const joint = (calW: number, rawW: number, rawWO: number) => (rawW > 0 ? calW * (rawWO / rawW) : 0);
+  const cWo = {
+    home: Math.min(0.99, cal.home + cal.over25 - joint(cal.home, raw.home, wo.homeAndOver)),
+    away: Math.min(0.99, cal.away + cal.over25 - joint(cal.away, raw.away, wo.awayAndOver)),
+  };
+  const share = Math.min(0.55, Math.max(0.35, inp.h1Share ?? 0.45));
+  const halves = { ...halfUnders(m, share), share };
+  if (band === "LOW") {
+    capLow(cal, flags);
+    const c = (x: number) => Math.min(0.89, Math.max(0.11, x));
+    cWo.home = c(cWo.home); cWo.away = c(cWo.away); halves.h1u15 = c(halves.h1u15); halves.h1u25 = c(halves.h1u25); halves.h2u25 = c(halves.h2u25);
+  }
 
   const features = {
     attackHome: th.attack, defenceHome: th.defence, attackAway: ta.attack, defenceAway: ta.defence,
@@ -111,7 +127,7 @@ export function predictFixture(inp: PredictInput): PredictOutput {
   return {
     modelVersion: MODEL_VERSION,
     inputsHash: inputsHash({ homeId: inp.homeId, awayId: inp.awayId, kickoff: inp.kickoff.toISOString(), ...features, calN: cs.home.n }),
-    lambdaHome, lambdaAway, rho, raw, cal, rawBy2, calBy2,
+    lambdaHome, lambdaAway, rho, raw, cal, rawBy2, calBy2, halves, winOrOver: { raw: { home: wo.home, away: wo.away }, cal: cWo },
     predHomeGoals: top[0].h, predAwayGoals: top[0].a,
     topScorelines: top, matrix: truncateMatrix(m), confidence: score, band,
     dataFlags: flags, rationale, features,

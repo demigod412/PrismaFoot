@@ -17,7 +17,7 @@ export const metadata = { title: "Top 20 tips" };
 export const dynamic = "force-dynamic";
 const DAY = 86_400_000;
 const windowLabel = (d: number) => (d === 1 ? "Today" : `Next ${d} days`);
-const FOCUS = [[undefined, "All competitions"], ["international", "International"], ["europe-strong", "Europe strongest"], ["england", "England"]] as const;
+const FOCUS = [[undefined, "All competitions"], ["international", "International"], ["europe-strong", "Europe strongest"], ["england", "England"], ["europe-other", "Europe other"], ["americas", "Americas"], ["africa", "Africa"], ["asia", "Asia"]] as const;
 const GROUPS = Object.keys(GROUP_LABEL) as MarketGroup[];
 
 /** Latest quote per fixture+market, optionally only those fetched before a cut-off per fixture. */
@@ -90,7 +90,7 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
   const byDay = new Map<string, (typeof past)[number][]>();
   past.forEach((f) => { const k = dayKey(f.kickoffUtc); byDay.set(k, [...(byDay.get(k) ?? []), f]); });
   const record: Day[] = [...byDay.entries()].sort(([a], [b]) => b.localeCompare(a)).map(([day, fs]) => {
-    const res = (f: (typeof fs)[number]) => ({ h: f.homeGoals!, a: f.awayGoals!, hc: f.homeCorners, ac: f.awayCorners, hs: f.homeShots, as: f.awayShots });
+    const res = (f: (typeof fs)[number]) => ({ h: f.homeGoals!, a: f.awayGoals!, hc: f.homeCorners, ac: f.awayCorners, hs: f.homeShots, as: f.awayShots, hh: f.htHome, ha: f.htAway });
     const lines = (f: (typeof fs)[number]) => ({ corners: f.predictions[0].cornersLine, shots: f.predictions[0].shotsLine });
     if (list === "likely") {
       const scored = selectTop(fs.map((f) => ({ item: f, id: f.id, startMs: f.kickoffUtc.getTime(), tips: tipsFor(f.predictions[0], f.homeTeam.name, f.awayTeam.name, group) })), group)

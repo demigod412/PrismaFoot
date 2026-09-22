@@ -10,7 +10,7 @@ export interface ScoredCall {
   fixtureId: string; leagueId: string; kickoff: Date; band: "HIGH" | "MEDIUM" | "LOW";
   cal: Triple; raw: Triple;
   h: number; a: number;
-  hc?: number | null; ac?: number | null; hs?: number | null; as?: number | null;
+  hc?: number | null; ac?: number | null; hs?: number | null; as?: number | null; hh?: number | null; ha?: number | null;
   cornersLine?: number | null; shotsLine?: number | null;
   markets: MarketTip[];
   tableFav: 0 | 2 | null;   // league-table favourite at kickoff (home / away), null if no table yet
@@ -63,7 +63,7 @@ export function computeAccuracy(calls: ScoredCall[]): AccuracyReport {
   const mk = new Map<MarketKey, { label: string; n: number; hit: number; p: number }>();
   for (const { c } of rows) for (const m of c.markets) {
     if (m.p < 0.5) continue;
-    const hit = marketHit(m.key, { h: c.h, a: c.a, hc: c.hc, ac: c.ac, hs: c.hs, as: c.as }, { corners: c.cornersLine, shots: c.shotsLine });
+    const hit = marketHit(m.key, { h: c.h, a: c.a, hc: c.hc, ac: c.ac, hs: c.hs, as: c.as, hh: c.hh, ha: c.ha }, { corners: c.cornersLine, shots: c.shotsLine });
     if (hit == null) continue;
     const e = mk.get(m.key) ?? { label: m.short, n: 0, hit: 0, p: 0 };
     e.n++; e.p += m.p; if (hit) e.hit++; mk.set(m.key, e);

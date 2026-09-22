@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0 — halves, win or over, more leagues
+- **New markets:** 1st half Under 1.5, 1st half Under 2.5, 2nd half Under 2.5, Home win or Over 2.5, Away win or Over 2.5 — on match pages (All markets), scanners, fixtures filter, Top 20 (new "Halves" and "Win or Over 2.5" filters), Blend and slips.
+  Halves use each league's fitted share of first-half goals (from half-time scores, shrunk to 45%); half markets are scored from the stored half-time result.
+- **Headline pick** never shows 1st-half or 2nd-half Under 2.5 (they would top most matches). **Top 20** mixed list allows at most one of them.
+- **Half-time scores** stored for every match (football-data.org and API-Football) and on the results ledger.
+- **More leagues:** Brazil Série A added on football-data.org's free plan. For API-Football plans: League One/Two, LaLiga 2, Serie B, 2. Bundesliga, Ligue 2, Scotland, Belgium, Turkey, Greece, Austria, Switzerland, Denmark, Norway, Sweden, Brazil, Argentina, Mexico, MLS, Libertadores, Sudamericana, Saudi Pro League, J1, Egypt, South Africa, CAF Champions League. New region filters: Europe other, Americas, Africa, Asia.
+- **Sportybet codes** map 1st-half / 2nd-half totals; "win or over" isn't a single Sportybet selection and is listed as not booked.
+
 ## 0.5.2
 - **Blend builder:** new **Sportybet code** button books the selected legs directly (unmapped legs listed), with **Copy code** and Open on Sportybet. Blend now offers every market (win, double chance, goals, BTTS yes/no, win by 2+, corners, shots).
 - **Copy to clipboard everywhere:** Copy code on slips and blends, Copy text on slips and blends — works on phones (fallback when the clipboard API is blocked) and confirms "Copied".

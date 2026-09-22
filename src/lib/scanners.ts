@@ -1,11 +1,12 @@
 import type { Prediction } from "@prisma/client";
 
 export type Market = "home" | "draw" | "away" | "over15" | "over25" | "over35" | "over45" | "btts" | "under25" | "under35" | "under45"
-  | "dc_1x" | "dc_x2" | "dc_12" | "btts_no" | "home_by2" | "away_by2" | "corners_over" | "corners_under" | "shots_over" | "shots_under";
+  | "dc_1x" | "dc_x2" | "dc_12" | "btts_no" | "home_by2" | "away_by2" | "corners_over" | "corners_under" | "shots_over" | "shots_under"
+  | "h1_under15" | "h1_under25" | "h2_under25" | "home_or_over25" | "away_or_over25";
 export interface Pick { market: Market; label: string; p: number }
 
-export interface ScannerFloors { safeP: number; winMargin: number; o15: number; o25: number; btts: number; draw: number; team2: number; u25: number; u35: number; u45: number; dc: number; bttsNo: number; by2: number; corners: number; shots: number }
-export const DEFAULT_FLOORS: ScannerFloors = { safeP: 0.7, winMargin: 0.1, o15: 0.72, o25: 0.55, btts: 0.55, draw: 0.3, team2: 0.45, u25: 0.55, u35: 0.72, u45: 0.85, dc: 0.75, bttsNo: 0.55, by2: 0.4, corners: 0.6, shots: 0.6 };
+export interface ScannerFloors { safeP: number; winMargin: number; o15: number; o25: number; btts: number; draw: number; team2: number; u25: number; u35: number; u45: number; dc: number; bttsNo: number; by2: number; corners: number; shots: number; h1u15: number; h1u25: number; h2u25: number; winOver: number }
+export const DEFAULT_FLOORS: ScannerFloors = { safeP: 0.7, winMargin: 0.1, o15: 0.72, o25: 0.55, btts: 0.55, draw: 0.3, team2: 0.45, u25: 0.55, u35: 0.72, u45: 0.85, dc: 0.75, bttsNo: 0.55, by2: 0.4, corners: 0.6, shots: 0.6, h1u15: 0.6, h1u25: 0.78, h2u25: 0.7, winOver: 0.7 };
 
 export const SCANNERS = [
   { slug: "all", name: "All", blurb: "Every fixture with a model call, ordered by kickoff." },
@@ -23,6 +24,10 @@ export const SCANNERS = [
   { slug: "by2", name: "Win by 2+", blurb: "A side to win by two or more goals (handicap −1.5), above your floor." },
   { slug: "corners", name: "Corners 8.5", blurb: "Over or under 8.5 total corners, above your floor. Needs match statistics (API-Football)." },
   { slug: "shots", name: "Shots 24.5", blurb: "Over or under 24.5 total shots, above your floor. Needs match statistics (API-Football)." },
+  { slug: "h1u15", name: "1H U1.5", blurb: "First half Under 1.5 goals (0 or 1 goal before half-time), above your floor." },
+  { slug: "h1u25", name: "1H U2.5", blurb: "First half Under 2.5 goals, above your floor. Most first halves land here, so the floor is set high." },
+  { slug: "h2u25", name: "2H U2.5", blurb: "Second half Under 2.5 goals, above your floor." },
+  { slug: "winover", name: "Win or O2.5", blurb: "A side to win OR the match to have 3+ goals (either one lands the tip), above your floor." },
   { slug: "draw", name: "Draw", blurb: "Draws priced above your floor. Draws are rarely favourites; this list is for context." },
   { slug: "safe", name: "Safe", blurb: "High confidence and a single market at or above your safe floor. Not a guarantee. Under 4.5 is left out because it would top almost every match." },
   { slug: "team2", name: "Team 2+ goals", blurb: "One side expected to score two or more, from the scoreline matrix." },
@@ -34,6 +39,7 @@ export const MARKET_LABEL: Record<Market, string> = {
   home: "Home win", draw: "Draw", away: "Away win", over15: "Over 1.5", over25: "Over 2.5", over35: "Over 3.5", over45: "Over 4.5", btts: "BTTS", under25: "Under 2.5", under35: "Under 3.5", under45: "Under 4.5",
   dc_1x: "1X", dc_x2: "X2", dc_12: "12", btts_no: "BTTS No", home_by2: "Home −1.5", away_by2: "Away −1.5",
   corners_over: "Corners Over 8.5", corners_under: "Corners Under 8.5", shots_over: "Shots Over 24.5", shots_under: "Shots Under 24.5",
+  h1_under15: "1H Under 1.5", h1_under25: "1H Under 2.5", h2_under25: "2H Under 2.5", home_or_over25: "Home or Over 2.5", away_or_over25: "Away or Over 2.5",
 };
 
 export function marketP(p: Prediction, m: Market): number {
@@ -48,6 +54,8 @@ export function marketP(p: Prediction, m: Market): number {
     case "home_by2": return p.calHomeBy2 ?? 0; case "away_by2": return p.calAwayBy2 ?? 0;
     case "corners_over": return p.calCornersOver ?? 0; case "corners_under": return p.calCornersOver == null ? 0 : 1 - p.calCornersOver;
     case "shots_over": return p.calShotsOver ?? 0; case "shots_under": return p.calShotsOver == null ? 0 : 1 - p.calShotsOver;
+    case "h1_under15": return p.calH1Under15 ?? 0; case "h1_under25": return p.calH1Under25 ?? 0; case "h2_under25": return p.calH2Under25 ?? 0;
+    case "home_or_over25": return p.calHomeOrOver25 ?? 0; case "away_or_over25": return p.calAwayOrOver25 ?? 0;
   }
 }
 
@@ -112,6 +120,14 @@ export function scan(slug: ScannerSlug, p: Prediction, f: ScannerFloors): Pick |
       ];
       const best = cands.sort((a, b) => b.p - a.p)[0];
       return best.p >= f.safeP ? best : null;
+    }
+    case "h1u15": return p.calH1Under15 != null && p.calH1Under15 >= f.h1u15 ? { market: "h1_under15", label: "1H Under 1.5", p: p.calH1Under15 } : null;
+    case "h1u25": return p.calH1Under25 != null && p.calH1Under25 >= f.h1u25 ? { market: "h1_under25", label: "1H Under 2.5", p: p.calH1Under25 } : null;
+    case "h2u25": return p.calH2Under25 != null && p.calH2Under25 >= f.h2u25 ? { market: "h2_under25", label: "2H Under 2.5", p: p.calH2Under25 } : null;
+    case "winover": {
+      if (p.calHomeOrOver25 == null || p.calAwayOrOver25 == null) return null;
+      const b = p.calHomeOrOver25 >= p.calAwayOrOver25 ? { market: "home_or_over25" as Market, label: "Home win or Over 2.5", p: p.calHomeOrOver25 } : { market: "away_or_over25" as Market, label: "Away win or Over 2.5", p: p.calAwayOrOver25 };
+      return b.p >= f.winOver ? b : null;
     }
     case "blend": return oneXTwoPick(p);
   }

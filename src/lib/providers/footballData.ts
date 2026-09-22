@@ -8,7 +8,7 @@ type FdMatch = {
   id: number; utcDate: string; status: string; matchday?: number; venue?: string;
   season: { startDate: string }; competition: { id: number; code: string };
   homeTeam: FdTeam; awayTeam: FdTeam;
-  score: { fullTime: { home: number | null; away: number | null } };
+  score: { fullTime: { home: number | null; away: number | null }; halfTime?: { home: number | null; away: number | null } };
 };
 
 const mapStatus = (s: string): FxStatus =>
@@ -26,6 +26,7 @@ export function footballData(key: string, base = process.env.FOOTBALL_DATA_BASE_
     home: { externalId: String(m.homeTeam.id), name: m.homeTeam.name, shortName: m.homeTeam.shortName, crestUrl: m.homeTeam.crest },
     away: { externalId: String(m.awayTeam.id), name: m.awayTeam.name, shortName: m.awayTeam.shortName, crestUrl: m.awayTeam.crest },
     homeGoals: m.score.fullTime.home, awayGoals: m.score.fullTime.away,
+    htHome: m.score.halfTime?.home ?? null, htAway: m.score.halfTime?.away ?? null,
   });
 
   return {

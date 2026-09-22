@@ -47,7 +47,7 @@ export async function syncResults(db: PrismaClient, p: FootballProvider, provide
     const rs = await p.getResults({ date });
     for (const r of rs) {
       if (r.homeGoals == null || r.awayGoals == null) continue;
-      const u = await db.fixture.updateMany({ where: { provider, externalId: r.externalId }, data: { status: r.status, homeGoals: r.homeGoals, awayGoals: r.awayGoals } });
+      const u = await db.fixture.updateMany({ where: { provider, externalId: r.externalId }, data: { status: r.status, homeGoals: r.homeGoals, awayGoals: r.awayGoals, ...(r.htHome != null && r.htAway != null ? { htHome: r.htHome, htAway: r.htAway } : {}) } });
       updated += u.count;
     }
   }
@@ -63,8 +63,8 @@ export async function settle(db: PrismaClient, provider?: Provider) {
   let created = 0, corrected = 0;
   for (const f of fin) {
     const last = f.results[0];
-    if (last && last.homeGoals === f.homeGoals && last.awayGoals === f.awayGoals) continue;
-    await db.result.create({ data: { fixtureId: f.id, homeGoals: f.homeGoals!, awayGoals: f.awayGoals!, source: f.provider, supersedesId: last?.id ?? null } });
+    if (last && last.homeGoals === f.homeGoals && last.awayGoals === f.awayGoals && (last.htHome === f.htHome || f.htHome == null)) continue;
+    await db.result.create({ data: { fixtureId: f.id, homeGoals: f.homeGoals!, awayGoals: f.awayGoals!, htHome: f.htHome, htAway: f.htAway, source: f.provider, supersedesId: last?.id ?? null } });
     if (last) corrected++; else created++;
   }
   return { created, corrected };
@@ -97,7 +97,7 @@ export async function loadScoredCalls(db: PrismaClient, provider: Provider, sinc
     return {
       fixtureId: p.fixtureId, leagueId: p.fixture.leagueId, kickoff: p.fixture.kickoffUtc, band: p.band,
       cal: [p.calHome, p.calDraw, p.calAway] as Triple, raw: [p.rawHome, p.rawDraw, p.rawAway] as Triple,
-      h: r.homeGoals, a: r.awayGoals, hc: p.fixture.homeCorners, ac: p.fixture.awayCorners, hs: p.fixture.homeShots, as: p.fixture.awayShots,
+      h: r.homeGoals, a: r.awayGoals, hc: p.fixture.homeCorners, ac: p.fixture.awayCorners, hs: p.fixture.homeShots, as: p.fixture.awayShots, hh: r.htHome ?? p.fixture.htHome, ha: r.htAway ?? p.fixture.htAway,
       cornersLine: p.cornersLine, shotsLine: p.shotsLine,
       markets: allMarkets(p, "Home", "Away"),
       tableFav: favs.get(p.fixtureId) ?? null,
