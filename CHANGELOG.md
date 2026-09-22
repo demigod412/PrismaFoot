@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.2
+- **Blend builder:** new **Sportybet code** button books the selected legs directly (unmapped legs listed), with **Copy code** and Open on Sportybet. Blend now offers every market (win, double chance, goals, BTTS yes/no, win by 2+, corners, shots).
+- **Copy to clipboard everywhere:** Copy code on slips and blends, Copy text on slips and blends — works on phones (fallback when the clipboard API is blocked) and confirms "Copied".
+
 ## 0.5.1
 - Fix: pages could hang ("loading" forever) while a full sync was running, because the sync fitted ratings inside the web-server process. The 3-hourly sync now runs as its own low-priority process (`npm run ingest`, via cron with `flock` so runs never overlap); lock and results jobs stay as light HTTP calls.
 - `npm run ingest` / `npm run selfcheck` load `.env` themselves.

@@ -2,11 +2,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Copy, Scissors, Trash2, Merge, Plus, Ticket, Wand2, X } from "lucide-react";
+import { Scissors, Trash2, Merge, Plus, Ticket, Wand2, X } from "lucide-react";
 import { formatInTimeZone } from "date-fns-tz";
 import { bookSportybet, deleteSlip, mergeInto, newSlip, optimiseSlip, removeFromSlip, renameSlip, selectSlip, splitSlip, type SlipResult } from "@/app/slips/actions";
 import { combinedP, fairOdds, slipText, type Leg } from "@/lib/slips";
 import { ConfidenceBadge } from "./ConfidenceBadge";
+import { CopyButton } from "./CopyButton";
 import { EmptyState } from "./EmptyState";
 import { Card, cn, pct } from "./ui";
 
@@ -106,14 +107,17 @@ export function SlipWorkshop({ slips, activeId }: { slips: SlipView[]; activeId:
             <Card>
               <div className="mb-2 text-xs text-slate-400">Export</div>
               <div className="flex flex-wrap gap-1.5">
-                <button className={btn} disabled={!slip.legs.length} onClick={() => { navigator.clipboard?.writeText(slipText(slip.name, slip.legs, fmt)); setMsg({ ok: true, message: "Slip text copied" }); }}><Copy size={14} />Copy text</button>
+                {slip.legs.length > 0 && <CopyButton text={slipText(slip.name, slip.legs, fmt)} label="Copy text" />}
                 <button className={btn} disabled={pending || !open.length} onClick={() => run(() => bookSportybet(slip.id))}><Ticket size={14} />{pending ? "Working…" : "Sportybet code"}</button>
               </div>
               {slip.bookingCode && (
                 <div className="mt-3 rounded-lg border border-edge/40 bg-edge/10 p-3 text-center">
                   <div className="text-[11px] text-slate-400">Sportybet booking code</div>
-                  <div className="num text-2xl font-semibold tracking-widest text-edge">{slip.bookingCode}</div>
-                  {slip.bookingUrl && <a href={slip.bookingUrl} target="_blank" rel="noreferrer" className="text-xs text-ice underline underline-offset-2">Open on Sportybet</a>}
+                  <div className="num select-all text-2xl font-semibold tracking-widest text-edge">{slip.bookingCode}</div>
+                  <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+                    <CopyButton text={slip.bookingCode} label="Copy code" />
+                    {slip.bookingUrl && <a href={slip.bookingUrl} target="_blank" rel="noreferrer" className="text-xs text-ice underline underline-offset-2">Open on Sportybet</a>}
+                  </div>
                 </div>
               )}
               {slip.bookingNote && <p className="mt-2 text-[11px] leading-relaxed text-amber">{slip.bookingNote}</p>}

@@ -97,15 +97,36 @@ export async function mergeInto(targetId: string, sourceId: string): Promise<Sli
   return done(r.duplicates.length ? `Merged. Same match in both slips (kept the stronger pick): ${r.duplicates.join(", ")}` : `Merged ${s.name} into ${t.name}`);
 }
 
+/** Resolve fixtures and ask Sportybet for a code. Shared by slips and the Blend builder. */
+async function bookLegs(legs: { fixtureId: string; market: MarketKey; label: string }[]) {
+  const fx = await prisma.fixture.findMany({ where: { id: { in: legs.map((l) => l.fixtureId) } }, include: { homeTeam: true, awayTeam: true } });
+  const r = await sportybetBook(legs.flatMap((l) => { const f = fx.find((x) => x.id === l.fixtureId); return f && f.kickoffUtc > new Date() ? [{ fixtureId: l.fixtureId, market: l.market, home: f.homeTeam.name, away: f.awayTeam.name, kickoff: f.kickoffUtc, label: l.label }] : []; }));
+  const note = r.unbookable.length ? `Not booked: ${r.unbookable.map((u) => `${u.label} (${u.reason})`).join("; ")}` : null;
+  return { ...r, note };
+}
+
+export type BookResult = { ok: boolean; message: string; code: string | null; url: string | null; note: string | null };
+/** Blend builder: book the selected legs directly (nothing is saved). */
+export async function bookBlend(legs: { fixtureId: string; market: MarketKey; label: string }[]): Promise<BookResult> {
+  if (process.env.SPORTYBET_ENABLED === "false") return { ok: false, message: "Sportybet export is switched off on this server.", code: null, url: null, note: null };
+  if (!legs.length) return { ok: false, message: "Pick at least one leg.", code: null, url: null, note: null };
+  try {
+    const r = await bookLegs(legs.slice(0, 30));
+    return r.code ? { ok: true, message: r.note ? "Code created — some legs could not be booked." : "Code created.", code: r.code, url: r.url, note: r.note }
+      : { ok: false, message: r.note ?? "No legs could be booked.", code: null, url: null, note: r.note };
+  } catch (e) {
+    return { ok: false, message: `Sportybet export failed: ${(e as Error).message}. Sportybet may block servers outside Nigeria; the text can still be copied.`, code: null, url: null, note: null };
+  }
+}
+
 /** Best-effort Sportybet booking code. Unmapped legs are listed, never silently dropped. */
 export async function bookSportybet(id: string): Promise<SlipResult> {
   if (process.env.SPORTYBET_ENABLED === "false") return { ok: false, message: "Sportybet export is switched off on this server." };
   const s = await ownSlip(id), legs = legsOf(s.legs).filter((l) => new Date(l.kickoff) > new Date());
   if (!legs.length) return { ok: false, message: "No upcoming legs to book." };
   try {
-    const fx = await prisma.fixture.findMany({ where: { id: { in: legs.map((l) => l.fixtureId) } }, include: { homeTeam: true, awayTeam: true } });
-    const r = await sportybetBook(legs.flatMap((l) => { const f = fx.find((x) => x.id === l.fixtureId); return f ? [{ fixtureId: l.fixtureId, market: l.market, home: f.homeTeam.name, away: f.awayTeam.name, kickoff: f.kickoffUtc, label: l.label }] : []; }));
-    const note = r.unbookable.length ? `Not booked: ${r.unbookable.map((u) => `${u.label} (${u.reason})`).join("; ")}` : null;
+    const r = await bookLegs(legs);
+    const note = r.note;
     await prisma.slip.update({ where: { id }, data: { bookingCode: r.code, bookingUrl: r.url, bookingAt: new Date(), bookingNote: note, bookie: "sportybet" } });
     return done(r.code ? `Sportybet code ${r.code}${note ? " (some legs could not be booked)" : ""}` : note ?? "No legs could be booked.", !!r.code);
   } catch (e) {

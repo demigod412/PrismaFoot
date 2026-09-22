@@ -4,6 +4,7 @@ import { getBoard } from "@/lib/queries";
 import { FIXTURE_WINDOW_DAYS } from "@/lib/window";
 import { SCANNERS, scan, DEFAULT_FLOORS, type ScannerFloors, type ScannerSlug } from "@/lib/scanners";
 import { getSetting } from "@/lib/secrets";
+import { allMarkets } from "@/lib/markets";
 import { FixtureList } from "@/components/FixtureList";
 import { EmptyState } from "@/components/EmptyState";
 import { Chip } from "@/components/ui";
@@ -29,11 +30,7 @@ export default async function ScannerPage({ params, searchParams }: { params: Pr
     const cands: BlendCandidate[] = fixtures.map((f) => {
       const p = f.predictions[0];
       return { id: f.id, title: `${f.homeTeam.shortName ?? f.homeTeam.name} v ${f.awayTeam.shortName ?? f.awayTeam.name}`, when: fmtWat(f.kickoffUtc, "EEE HH:mm"), band: p.band,
-        markets: { "Home win": p.calHome, Draw: p.calDraw, "Away win": p.calAway, "Over 1.5": p.calOver15, "Over 2.5": p.calOver25, "Under 2.5": 1 - p.calOver25, "Under 3.5": 1 - p.calOver35, "Under 4.5": 1 - p.calOver45, BTTS: p.calBtts, "BTTS No": 1 - p.calBtts,
-        "1X": p.calHome + p.calDraw, "X2": p.calDraw + p.calAway, "12": p.calHome + p.calAway,
-        ...(p.calHomeBy2 != null ? { "Home −1.5": p.calHomeBy2, "Away −1.5": p.calAwayBy2! } : {}),
-        ...(p.calCornersOver != null ? { [`Corners O${p.cornersLine}`]: p.calCornersOver, [`Corners U${p.cornersLine}`]: 1 - p.calCornersOver } : {}),
-        ...(p.calShotsOver != null ? { [`Shots O${p.shotsLine}`]: p.calShotsOver, [`Shots U${p.shotsLine}`]: 1 - p.calShotsOver } : {}) } };
+        markets: allMarkets(p, "Home", "Away").map((m) => ({ key: m.key, label: m.short, p: m.p })) };
     });
     return (<><Header name={def.name} blurb={def.blurb} n={cands.length} />{focusChips}<BlendBuilder candidates={cands} /></>);
   }

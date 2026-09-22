@@ -47,8 +47,9 @@ cron_lines() { # dir port secret name
   node -e '
     const [file, dir, port, secret, name, user] = process.argv.slice(1); const v = require(file);
     for (const c of v.crons || []) {
-      if (c.path === "/api/cron/ingest" && require("fs").existsSync(dir + "/scripts/ingest.ts"))
-        console.log(`${c.schedule} ${user} cd ${dir} && flock -n /tmp/${name}-ingest.lock nice -n 10 npm run -s ingest >> /var/log/${name}-cron.log 2>&1`);
+      const [path, query] = c.path.split("?"), qs = new URLSearchParams(query || ""), sport = qs.get("sport");
+      if (path === "/api/cron/ingest" && !qs.get("job") && require("fs").existsSync(dir + "/scripts/ingest.ts"))
+        console.log(`${c.schedule} ${user} cd ${dir} && flock -n /tmp/${name}-ingest${sport ? "-" + sport : ""}.lock nice -n 10 npm run -s ingest${sport ? " -- " + sport : ""} >> /var/log/${name}-cron.log 2>&1`);
       else
         console.log(`${c.schedule} root curl -fsS -m 3600 -H "Authorization: Bearer ${secret}" "http://127.0.0.1:${port}${c.path}" >> /var/log/${name}-cron.log 2>&1`);
     }
@@ -103,7 +104,7 @@ if [[ "$MODE" == "update" ]]; then
       cron_lines "$APP_DIR" "$PORT" "$CRON_SECRET" "$APP_NAME"
     } > "/etc/cron.d/$APP_NAME"
     chmod 644 "/etc/cron.d/$APP_NAME"; systemctl restart cron
-    ok "Scheduled jobs refreshed: $(grep -c curl "/etc/cron.d/$APP_NAME") job(s)"
+    ok "Scheduled jobs refreshed: $(grep -cE '^[0-9*]' "/etc/cron.d/$APP_NAME") job(s)"
   fi
   # Keep the cron log from growing forever
   printf '/var/log/%s-cron.log {\n  weekly\n  rotate 4\n  compress\n  missingok\n  notifempty\n}\n' "$APP_NAME" > "/etc/logrotate.d/$APP_NAME"
@@ -336,7 +337,7 @@ CRON_FILE="/etc/cron.d/$APP_NAME"
 } > "$CRON_FILE"
 chmod 644 "$CRON_FILE"
 systemctl restart cron
-ok "$(grep -c curl "$CRON_FILE" || true) job(s) scheduled in $CRON_FILE (log: /var/log/$APP_NAME-cron.log)"
+ok "$(grep -cE '^[0-9*]' "$CRON_FILE" || true) job(s) scheduled in $CRON_FILE (log: /var/log/$APP_NAME-cron.log)"
 
 # =============================================================================
 #  8. NGINX (HTTP first, for the certificate request)
