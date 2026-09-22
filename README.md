@@ -55,12 +55,69 @@ scripts/backtest-synthetic.ts     walk-forward Brier/log loss vs baselines on si
 
 ## Operations (Lightsail)
 
+App folder `/var/www/pitchedge` · repo `~/PrismaFoot` · site `https://pitch.<your-domain>`
+
+### Everyday commands
 ```bash
-cd ~/PrismaFoot && sudo bash ./setup-lightsail.sh update pitchedge   # deploy latest code, refresh cron
-cd /var/www/pitchedge && sudo -u ubuntu npm run selfcheck            # ledger checks (add -- --demo for a full pipeline test)
-cd /var/www/pitchedge && sudo -u ubuntu npm run ingest               # full sync now (runs outside the web server)
+# Sync now (own process, site stays fast; 5–8 min on football-data.org)
+cd /var/www/pitchedge && sudo -u ubuntu npm run -s ingest
+
+# Ledger checks (locks, results, accuracy). Add -- --demo for a full pipeline test on demo data.
+cd /var/www/pitchedge && sudo -u ubuntu npm run selfcheck
+
+# Service and logs
+sudo systemctl status pitchedge
+sudo journalctl -u pitchedge -f          # app log
+tail -f /var/log/pitchedge-cron.log      # scheduled jobs
+cat /etc/cron.d/pitchedge                # the schedule itself
 ```
-Cron: full sync every 3 h (separate process), lock every 5 min, results every 15 min. Log: `/var/log/pitchedge-cron.log`.
+Scheduled automatically: full sync every 3 hours, lock every 5 minutes, results every 15 minutes.
+
+### Adding or changing keys
+**Easiest: Settings → unlock with your PIN** (`/settings`) — provider keys, primary provider, scanner floors, access code. Save, then run a sync.
+
+**A key in `.env` always wins over Settings**, and the installer writes the provider key there:
+```bash
+sudo nano /var/www/pitchedge/.env        # edit, Ctrl+O, Enter, Ctrl+X
+sudo systemctl restart pitchedge
+cd /var/www/pitchedge && sudo -u ubuntu npm run -s ingest
+```
+Or in one line:
+```bash
+sudo sed -i "s|^FOOTBALL_DATA_KEY=.*|FOOTBALL_DATA_KEY=your_new_key|" /var/www/pitchedge/.env && sudo systemctl restart pitchedge
+```
+
+| `.env` line | What it does |
+|---|---|
+| `FOOTBALL_DATA_KEY=` | football-data.org key (free plan: 12 competitions, 10 requests/minute, no odds or match stats) |
+| `API_FOOTBALL_KEY=` | API-Football key (paid: odds, corners/shots, ~60 extra leagues) |
+| `PRIMARY_PROVIDER=` | `football-data`, `api-football` or `sportmonks` — only this one is used |
+| `FIXTURE_WINDOW_DAYS=21` | how far ahead fixtures are fetched and predicted |
+| `PREDICTION_LOCK_MINUTES=15` | when a call locks before kick-off |
+| `SPORTYBET_ENABLED=false` | switch off booking codes |
+| `SETTINGS_PIN=` / `CRON_SECRET=` | Settings PIN · protects the scheduled-job URLs |
+
+Switching provider: set it in Settings (or `PRIMARY_PROVIDER`), restart, then sync. The site keeps showing the current data until the new provider's first sync succeeds.
+
+### Updating the code
+```bash
+cd ~/PrismaFoot && git pull
+sudo bash ./setup-lightsail.sh update pitchedge
+```
+From a zip: unzip to `/tmp/pe`, `rsync -a --delete --exclude .git --exclude node_modules --exclude .env /tmp/pe/pitchedge/ ~/PrismaFoot/`, commit, push, then the update command above.
+
+### Access code
+Set, change or remove it in **Settings → Access code** (PIN-protected, always reachable). It covers every page, locks again after 30 minutes of inactivity, and locks the form for 5 minutes after 5 wrong tries.
+
+### When something looks wrong
+| What you see | What it means |
+|---|---|
+| `football-data 429` | free tier allows 10 requests/minute; the sync waits and reloads those seasons next run |
+| `"predictions":0` | nothing scheduled within the fixture window (international break, off-season) |
+| empty corners / shots | needs match statistics: API-Football only |
+| empty value list | needs bookmaker odds: API-Football only |
+| `"newcomers":n` | promoted/relegated teams starting from their previous league's record |
+| demo banner showing | no successful live sync yet — run the sync |
 
 ## Checks
 
