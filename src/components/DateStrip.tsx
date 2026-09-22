@@ -19,6 +19,7 @@ export function DateStrip({ days, active, base, extra = "" }: { days: DayChip[];
   const [sel, setSel] = useState(active);
   const strip = useRef<HTMLDivElement>(null);
   const picker = useRef<HTMLInputElement>(null);
+  const target = useRef<string | null>(null);
 
   useEffect(() => setSel(active), [active]);
   useEffect(() => {
@@ -26,11 +27,25 @@ export function DateStrip({ days, active, base, extra = "" }: { days: DayChip[];
     el?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
   }, [sel]);
 
+  const url = (key: string) => `${base}?date=${key}${extra}`;
   const go = (key: string) => {
     if (!days.some((d) => d.key === key) || key === sel) return;
     setSel(key);
-    start(() => router.push(`${base}?date=${key}${extra}`, { scroll: false }));
+    target.current = url(key);
+    start(() => router.push(url(key), { scroll: false }));
   };
+  // Safety net: if an in-app navigation hasn't finished after 6 s (slow network, stale app cache),
+  // load the page the normal way so the user never sees an endless spinner.
+  useEffect(() => {
+    if (!pending) return;
+    const t = setTimeout(() => { if (target.current) window.location.assign(target.current); }, 6000);
+    return () => clearTimeout(t);
+  }, [pending]);
+  // Warm up the neighbouring days so switching is instant
+  useEffect(() => {
+    const i = days.findIndex((d) => d.key === active);
+    [days[i - 1], days[i + 1]].forEach((d) => d && router.prefetch(url(d.key)));
+  }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
   const idx = days.findIndex((d) => d.key === sel);
 
   return (

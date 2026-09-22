@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.1
+- Fix: pages could hang ("loading" forever) while a full sync was running, because the sync fitted ratings inside the web-server process. The 3-hourly sync now runs as its own low-priority process (`npm run ingest`, via cron with `flock` so runs never overlap); lock and results jobs stay as light HTTP calls.
+- `npm run ingest` / `npm run selfcheck` load `.env` themselves.
+- Inputs hash rounded to 3 decimals: fewer needless prediction revisions.
+- Match page and board rows: the "best tip" is never double chance or Under 4.5 (still listed under All markets, and capped in the Top 20).
+- Fixtures: every date in the window verified against a real database (all return in < 0.3 s). Invalid dates fall back to today; empty days link to the next match day; the date bar falls back to a normal page load if an in-app navigation takes > 6 s, and pre-loads neighbouring days.
+- Match page: new **Best value** card — up to 3 markets where the model probability beats the bookmaker price (edge, odds, fair odds, add to slip).
+
 ## 0.5.0 — ledger, value, cross-league ratings, promoted teams, slips
 - **Scoring ledger (Phase 3):** calls lock at kickoff − 15 min (latest call made before that moment); nothing is re-predicted inside the window; results appended after FT, corrections appended with `supersedesId`; calibration refit from locked + settled calls; daily `AccuracyDaily` rows.
 - **Jobs:** sync every 3 h, lock every 5 min, results every 15 min (provider called only when a match should have ended). `setup-lightsail.sh update` now refreshes cron from `vercel.json` and adds log rotation.

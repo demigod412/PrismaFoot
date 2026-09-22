@@ -131,3 +131,11 @@ describe("sportybet name variants", () => {
     expect(matchEvent([e], "Manchester United FC", "Nottingham Forest FC", new Date(Date.UTC(2026, 9, 10, 14)))?.eventId).toBe("x");
   });
 });
+
+import { isDayKey } from "@/lib/time";
+describe("date param", () => {
+  it("accepts only real dates", () => {
+    expect(isDayKey("2026-10-06")).toBe(true);
+    for (const bad of ["2026-13-45", "2026-02-30", "garbage", "", undefined, "2026-1-5"]) expect(isDayKey(bad as string)).toBe(false);
+  });
+});

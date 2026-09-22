@@ -46,13 +46,21 @@ scripts/backtest-synthetic.ts     walk-forward Brier/log loss vs baselines on si
 
 | Phase | Scope | Status |
 |---|---|---|
-| 0 | Prisma, PWA shell, Settings key form, DEMO seed | done |
-| 1 | Date board, match page, dc-xg-cal-v1 on goals | done |
-| 2 | Scanners, 14-day window, methodology | done |
-| 3 | Scheduled ingest, T-15 lock, settle, Accuracy page | schema + cron route + calibration fitter ready; lock/settle jobs next |
-| 4 | Slip workshop | Blend builder with combined p, fair odds and copy text is live; saved slips next |
-| 5 | Booking-code adapters | not started |
-| 6 | xG ratings (Sportmonks adapter already maps xG), 1X2 blend, Ask page | not started |
+| 0–2 | Prisma, PWA, Settings, demo, date board, match page, scanners, methodology | done |
+| 3 | T-15 lock, results + settle (append-only), calibration refit, Accuracy page with baselines | done (0.5.0) |
+| 4 | Slip workshop: save, optimise, split, merge, copy | done (0.5.0) |
+| 5 | Sportybet booking codes (best effort, unofficial endpoints) | done (0.5.0) |
+| — | Top 20 (most likely / best value), cross-league club ratings, promoted-team priors | done (0.5.0) |
+| 6 | xG ratings, 1X2 blend, Ask page | not started |
+
+## Operations (Lightsail)
+
+```bash
+cd ~/PrismaFoot && sudo bash ./setup-lightsail.sh update pitchedge   # deploy latest code, refresh cron
+cd /var/www/pitchedge && sudo -u ubuntu npm run selfcheck            # ledger checks (add -- --demo for a full pipeline test)
+cd /var/www/pitchedge && sudo -u ubuntu npm run ingest               # full sync now (runs outside the web server)
+```
+Cron: full sync every 3 h (separate process), lock every 5 min, results every 15 min. Log: `/var/log/pitchedge-cron.log`.
 
 ## Checks
 

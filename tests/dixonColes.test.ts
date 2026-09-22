@@ -96,7 +96,7 @@ describe("top tips", () => {
   const base = { band: "HIGH", confidence: 80, calHome: 0.62, calDraw: 0.22, calAway: 0.16, calOver15: 0.78, calOver25: 0.52, calOver35: 0.28, calOver45: 0.12, calBtts: 0.5 } as never;
   it("picks the single strongest qualifying market and skips Low", () => {
     const t = bestTip(base, "H", "A")!;
-    expect(t.key).toBe("dc_1x"); expect(t.p).toBeCloseTo(0.84);
+    expect(t.key).toBe("over15"); expect(t.p).toBeCloseTo(0.78); // headline never double chance / Under 4.5
     expect(bestTip({ ...(base as object), band: "LOW" } as never, "H", "A")).toBeNull();
   });
   it("scores results", () => {

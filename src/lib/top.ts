@@ -33,9 +33,14 @@ export function tipsFor(p: Prediction, home: string, away: string, group?: Marke
     .sort((a, b) => b.strength - a.strength);
 }
 
-/** Strongest single tip for one match (match page headline, rows). Under 4.5 is skipped here: it would head almost every match. */
+/**
+ * Strongest single tip for one match (match page headline and board rows).
+ * Double chance and Under 4.5 are never the headline pick: they would head almost every match.
+ * They stay visible in the match's "All markets" card and (capped) in the Top 20.
+ */
+export const HEADLINE_EXCLUDED = (t: MarketTip) => t.group === "dc" || t.key === "under45";
 export function bestTip(p: Prediction, home: string, away: string, group?: MarketGroup): Tip | null {
-  return tipsFor(p, home, away, group).find((t) => group || t.key !== "under45") ?? null;
+  return tipsFor(p, home, away, group).find((t) => group || !HEADLINE_EXCLUDED(t)) ?? null;
 }
 
 /**

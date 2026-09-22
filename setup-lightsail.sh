@@ -39,6 +39,22 @@ ask() { # ask VAR "Prompt" "default" [secret]
 }
 rand() { openssl rand -hex "${1:-24}"; }
 
+# Cron lines from vercel.json. The heavy full sync (/api/cron/ingest) runs as its OWN low-priority process
+# (npm run ingest), so the website stays responsive; light jobs (lock, results) call the app over HTTP.
+cron_lines() { # dir port secret name
+  local dir=$1 port=$2 secret=$3 name=$4
+  touch "/var/log/$name-cron.log"; chown "$APP_USER:$APP_USER" "/var/log/$name-cron.log"
+  node -e '
+    const [file, dir, port, secret, name, user] = process.argv.slice(1); const v = require(file);
+    for (const c of v.crons || []) {
+      if (c.path === "/api/cron/ingest" && require("fs").existsSync(dir + "/scripts/ingest.ts"))
+        console.log(`${c.schedule} ${user} cd ${dir} && flock -n /tmp/${name}-ingest.lock nice -n 10 npm run -s ingest >> /var/log/${name}-cron.log 2>&1`);
+      else
+        console.log(`${c.schedule} root curl -fsS -m 3600 -H "Authorization: Bearer ${secret}" "http://127.0.0.1:${port}${c.path}" >> /var/log/${name}-cron.log 2>&1`);
+    }
+  ' "$dir/vercel.json" "$dir" "$port" "$secret" "$name" "$APP_USER"
+}
+
 [[ $EUID -eq 0 ]] || die "Run with sudo:  sudo ./setup-lightsail.sh"
 . /etc/os-release
 [[ "${ID:-}" == "ubuntu" ]] || die "This script supports Ubuntu only (found: ${ID:-unknown})."
@@ -84,10 +100,7 @@ if [[ "$MODE" == "update" ]]; then
     {
       echo "# Generated from $APP_DIR/vercel.json"
       echo "SHELL=/bin/bash"
-      node -e '
-        const v = require(process.argv[1]); const [port, secret, name] = [process.argv[2], process.argv[3], process.argv[4]];
-        for (const c of v.crons || []) console.log(`${c.schedule} root curl -fsS -m 3600 -H "Authorization: Bearer ${secret}" "http://127.0.0.1:${port}${c.path}" >> /var/log/${name}-cron.log 2>&1`);
-      ' "$APP_DIR/vercel.json" "$PORT" "$CRON_SECRET" "$APP_NAME"
+      cron_lines "$APP_DIR" "$PORT" "$CRON_SECRET" "$APP_NAME"
     } > "/etc/cron.d/$APP_NAME"
     chmod 644 "/etc/cron.d/$APP_NAME"; systemctl restart cron
     ok "Scheduled jobs refreshed: $(grep -c curl "/etc/cron.d/$APP_NAME") job(s)"
@@ -318,10 +331,7 @@ CRON_FILE="/etc/cron.d/$APP_NAME"
   echo "# Generated from $APP_DIR/vercel.json"
   echo "SHELL=/bin/bash"
   if [[ -f "$APP_DIR/vercel.json" ]]; then
-    node -e '
-      const v = require(process.argv[1]); const [port, secret] = [process.argv[2], process.argv[3]];
-      for (const c of v.crons || []) console.log(`${c.schedule} root curl -fsS -m 3600 -H "Authorization: Bearer ${secret}" "http://127.0.0.1:${port}${c.path}" >> /var/log/'"$APP_NAME"'-cron.log 2>&1`);
-    ' "$APP_DIR/vercel.json" "$PORT" "$CRON_SECRET"
+    cron_lines "$APP_DIR" "$PORT" "$CRON_SECRET" "$APP_NAME"
   fi
 } > "$CRON_FILE"
 chmod 644 "$CRON_FILE"

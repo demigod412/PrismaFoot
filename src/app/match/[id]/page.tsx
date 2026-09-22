@@ -8,6 +8,9 @@ import { ConfidenceBadge } from "@/components/ConfidenceBadge";
 import { allMarkets, marketHit, GROUP_LABEL, type MarketGroup } from "@/lib/markets";
 import { bestTip } from "@/lib/top";
 import { AddToSlip } from "@/components/AddToSlip";
+import { valueTips, VALUE } from "@/lib/value";
+import type { QuoteMap } from "@/lib/odds";
+import type { MarketKey } from "@/lib/markets";
 import { prisma } from "@/lib/db";
 import { europeanHandicap } from "@/lib/model/dixonColes";
 import { cn } from "@/components/ui";
@@ -41,6 +44,9 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
   const quotes = p ? await prisma.oddsQuote.findMany({ where: { fixtureId: fx.id }, orderBy: { fetchedAt: "desc" } }) : [];
   const oddsOf = (k: string) => quotes.find((q) => q.market === k)?.odds;
   const open = fx.status === "SCHEDULED" && fx.kickoffUtc > new Date();
+  const qmap: QuoteMap = {};
+  for (const q of quotes) qmap[q.market as MarketKey] ??= { odds: q.odds, best: q.best, books: q.books }; // newest first
+  const values = p ? valueTips(p, qmap, fx.homeTeam.shortName ?? fx.homeTeam.name, fx.awayTeam.shortName ?? fx.awayTeam.name).slice(0, 3) : [];
   const markets = p ? allMarkets(p, fx.homeTeam.shortName ?? fx.homeTeam.name, fx.awayTeam.shortName ?? fx.awayTeam.name) : [];
   const tip = p ? bestTip(p, fx.homeTeam.shortName ?? fx.homeTeam.name, fx.awayTeam.shortName ?? fx.awayTeam.name) : null;
   return (
@@ -67,6 +73,32 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
           </div>
         )}
         {p && !tip && <p className="mx-auto mt-6 max-w-md text-center text-sm text-slate-400">No tip reaches 55% at Medium or High confidence for this match.</p>}
+        {p && tip && open && <div className="mt-2 flex justify-center"><AddToSlip fixtureId={fx.id} market={tip.key} /></div>}
+        {p && (
+          <div className="mx-auto mt-4 max-w-md rounded-2xl border border-ice/30 bg-ice/[0.05] px-4 py-3">
+            <div className="text-center text-[11px] uppercase tracking-wide text-ice/80">Best value</div>
+            {values.length ? (
+              <ul className="mt-2 divide-y divide-white/[0.06]">
+                {values.map((v) => (
+                  <li key={v.key} className="flex items-center gap-2 py-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm text-slate-100">{v.label}</div>
+                      <div className="num text-[11px] text-slate-400">model {pct(v.p)} · odds {v.odds.toFixed(2)} · fair {v.fair.toFixed(2)}</div>
+                    </div>
+                    <span className="num text-sm text-edge">+{Math.round(v.edge * 100)}%</span>
+                    {open && <AddToSlip fixtureId={fx.id} market={v.key} />}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-1 text-center text-xs text-slate-400">
+                {quotes.length
+                  ? `No market is priced better than the model's fair odds right now (needs an edge of ${Math.round(VALUE.minEdge * 100)}%+ at odds ${VALUE.minOdds.toFixed(2)}–${VALUE.maxOdds.toFixed(2)}).`
+                  : "Needs bookmaker odds, which come from API-Football. With football-data.org there are no odds for this match."}
+              </p>
+            )}
+          </div>
+        )}
         {p && (
           <>
             <div className="mx-auto mt-7 max-w-xl"><ProbBar home={p.calHome} draw={p.calDraw} away={p.calAway} size="lg" /></div>

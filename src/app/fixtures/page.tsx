@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { getBoard, getLeagues } from "@/lib/queries";
-import { dayKey, watDayStart } from "@/lib/time";
+import { dayKey, fmtWat, isDayKey, watDayStart } from "@/lib/time";
+import { prisma } from "@/lib/db";
+import { dataMode } from "@/lib/mode";
 import { DateNav } from "@/components/DateNav";
 import { FixtureList } from "@/components/FixtureList";
 import { EmptyState } from "@/components/EmptyState";
@@ -18,10 +20,16 @@ const MARKETS: { slug: ScannerSlug; label: string }[] = [
 
 export default async function Fixtures({ searchParams }: { searchParams: Promise<{ date?: string; league?: string; market?: string }> }) {
   const sp = await searchParams;
-  const date = sp.date && /^\d{4}-\d{2}-\d{2}$/.test(sp.date) ? sp.date : dayKey(new Date());
+  const date = isDayKey(sp.date) ? sp.date : dayKey(new Date());
   const market = (MARKETS.find((m) => m.slug === sp.market)?.slug ?? "all") as ScannerSlug;
   const from = watDayStart(date);
   const [leagues, all] = await Promise.all([getLeagues(), getBoard({ from, to: new Date(from.getTime() + 86_400_000), leagueId: sp.league })]);
+  // Empty day: point to the nearest day that has fixtures (e.g. during international breaks)
+  const nextDay = all.length ? null : await (async () => {
+    const { provider } = await dataMode();
+    const f = await prisma.fixture.findFirst({ where: { provider, kickoffUtc: { gte: new Date(from.getTime() + 86_400_000) }, ...(sp.league ? { leagueId: sp.league } : {}) }, orderBy: { kickoffUtc: "asc" }, select: { kickoffUtc: true } });
+    return f ? dayKey(f.kickoffUtc) : null;
+  })();
   const picks = new Map<string, { label: string; p: number }>();
   const shown = all.filter((f) => {
     const p = f.predictions[0]; if (!p) return market === "all";
@@ -42,8 +50,10 @@ export default async function Fixtures({ searchParams }: { searchParams: Promise
         {MARKETS.map((m) => <Link key={m.slug} href={q({ market: m.slug })}><Chip active={market === m.slug}>{m.label}</Chip></Link>)}
       </div>
       {shown.length ? <FixtureList fixtures={shown} picks={picks} />
-        : <EmptyState title="Nothing matches this filter" body={all.length ? "Fixtures exist on this date, but none pass the selected market floor." : "No fixtures on this date for the selected leagues."}
-            action={all.length ? { href: q({ market: "all" }), label: "Show all markets" } : undefined} />}
+        : all.length
+          ? <EmptyState title="Nothing matches this filter" body="Fixtures exist on this date, but none pass the selected market floor." action={{ href: q({ market: "all" }), label: "Show all markets" }} />
+          : <EmptyState title="No fixtures on this date" body={nextDay ? `Next matches: ${fmtWat(watDayStart(nextDay), "EEEE d MMMM")}. Leagues pause during international breaks.` : "No upcoming fixtures are stored for the selected leagues."}
+              action={nextDay ? { href: `/fixtures?date=${nextDay}${sp.league ? `&league=${sp.league}` : ""}`, label: "Go to next match day" } : undefined} />}
     </PullToRefresh>
   );
 }
