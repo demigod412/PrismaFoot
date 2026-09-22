@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { FIXTURE_WINDOW_DAYS } from "@/lib/window";
 import { getBoard } from "@/lib/queries";
 import { FixtureList } from "@/components/FixtureList";
 import { Card, SectionTitle } from "@/components/ui";
@@ -11,7 +12,7 @@ export default async function LeaguePage({ params }: { params: Promise<{ id: str
   if (!league) notFound();
   const now = new Date();
   const [upcoming, finished, ratings] = await Promise.all([
-    getBoard({ from: now, to: new Date(now.getTime() + 14 * 86_400_000), leagueId: id }),
+    getBoard({ from: now, to: new Date(now.getTime() + FIXTURE_WINDOW_DAYS * 86_400_000), leagueId: id }),
     prisma.fixture.findMany({ where: { leagueId: id, status: "FINISHED" }, include: { homeTeam: true, awayTeam: true } }),
     prisma.teamRatingSnapshot.findMany({ where: { team: { leagueId: id } }, orderBy: { asOf: "desc" }, distinct: ["teamId"], include: { team: true } }),
   ]);
@@ -33,8 +34,8 @@ export default async function LeaguePage({ params }: { params: Promise<{ id: str
       <p className="mb-6 text-sm text-slate-400">{league.country} · season {league.season} · home factor <span className="num">{league.homeAdv.toFixed(2)}</span> · ρ <span className="num">{league.rho.toFixed(3)}</span></p>
       <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
         <div>
-          <SectionTitle>Next 14 days</SectionTitle>
-          {upcoming.length ? <FixtureList fixtures={upcoming} /> : <EmptyState title="No upcoming fixtures" body="Nothing scheduled in the 14-day window." />}
+          <SectionTitle>Next {FIXTURE_WINDOW_DAYS} days</SectionTitle>
+          {upcoming.length ? <FixtureList fixtures={upcoming} /> : <EmptyState title="No upcoming fixtures" body={`Nothing scheduled in the next ${FIXTURE_WINDOW_DAYS} days.`} />}
         </div>
         <Card className="h-fit">
           <SectionTitle aside="α attack · β defence">Table and ratings</SectionTitle>
