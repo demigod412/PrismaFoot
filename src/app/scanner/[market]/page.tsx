@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getBoard } from "@/lib/queries";
+import { FIXTURE_WINDOW_DAYS } from "@/lib/window";
 import { SCANNERS, scan, DEFAULT_FLOORS, type ScannerFloors, type ScannerSlug } from "@/lib/scanners";
 import { getSetting } from "@/lib/secrets";
 import { FixtureList } from "@/components/FixtureList";
@@ -15,7 +16,7 @@ export default async function ScannerPage({ params, searchParams }: { params: Pr
   if (!def) notFound();
   const floors = { ...DEFAULT_FLOORS, ...(await getSetting<Partial<ScannerFloors>>("scannerFloors", {})) };
   const now = new Date();
-  const fixtures = (await getBoard({ from: now, to: new Date(now.getTime() + 14 * 86_400_000), focus })).filter((f) => f.predictions[0]);
+  const fixtures = (await getBoard({ from: now, to: new Date(now.getTime() + FIXTURE_WINDOW_DAYS * 86_400_000), focus })).filter((f) => f.predictions[0]);
   const focusChips = (
     <div className="mb-4 flex gap-1.5">
       {[[undefined, "All leagues"], ["europe-strong", "Europe strongest"], ["england", "England"], ["international", "International"]].map(([f, l]) => (
@@ -42,7 +43,7 @@ export default async function ScannerPage({ params, searchParams }: { params: Pr
       <Header name={def.name} blurb={def.blurb} n={hits.length} />
       {focusChips}
       {hits.length ? <FixtureList fixtures={hits} picks={def.slug === "all" ? undefined : picks} />
-        : <EmptyState title={`No ${def.name} picks in the next 14 days`} body="Nothing clears the current floor. That is a valid answer; lowering the floor in Settings trades accuracy for volume." action={{ href: "/settings", label: "Adjust floors" }} />}
+        : <EmptyState title={`No ${def.name} picks in the next ${FIXTURE_WINDOW_DAYS} days`} body="Nothing clears the current floor. That is a valid answer; lowering the floor in Settings trades accuracy for volume." action={{ href: "/settings", label: "Adjust floors" }} />}
     </>
   );
 }
