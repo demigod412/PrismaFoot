@@ -1,5 +1,7 @@
 import type { PrismaClient, Provider } from "@prisma/client";
-import { addDays } from "date-fns";
+import { addDays, format } from "date-fns";
+
+const ymd = (d: Date) => format(d, "yyyy-MM-dd");
 import type { FootballProvider, PFixture } from "../providers/types";
 import { PROVIDER_ENUM, THROTTLE_MS } from "../providers";
 import { LEAGUE_ALLOWLIST, POOL_SETTINGS } from "../leagues";
@@ -39,11 +41,18 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
       // Whole seasons in one request each (current + previous; 3 seasons for national teams).
       const fixtures: PFixture[] = [];
       const errors: string[] = [];
-      for (let k = 0; k < (pool?.seasons ?? 2); k++) {
+      // Finals tournaments (World Cup, Euro…) only exist in their own year: don't ask for earlier "seasons".
+      const nSeasons = entry.neutral ? 1 : pool?.seasons ?? 2;
+      for (let k = 0; k < nSeasons; k++) {
         try { fixtures.push(...(await p.getFixtures({ leagueId: l.externalId, season: l.season - k }))); }
         catch (e) { errors.push(`${l.season - k}: ${(e as Error).message}`); }
         await sleep(THROTTLE_MS[p.id]);
       }
+      // Upcoming games: always ask for the next 14 days explicitly (some plans leave future fixtures out of season lists).
+      try {
+        fixtures.push(...(await p.getFixtures({ leagueId: l.externalId, season: l.season, from: ymd(now), to: ymd(addDays(now, 14)) })));
+      } catch (e) { errors.push(`next 14 days: ${(e as Error).message}`); }
+      await sleep(THROTTLE_MS[p.id]);
       const oldest = addDays(now, -(pool?.historyDays ?? opts.historyDays ?? 450)).getTime();
       const keep = fixtures.filter((f) => f.kickoffUtc.getTime() >= oldest && f.kickoffUtc.getTime() <= addDays(now, 14).getTime());
       if (!keep.length) { report[l.name] = { fixtures: 0, errors }; continue; } // don't mark synced when nothing came back
@@ -59,7 +68,8 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
         await db.fixture.upsert({ where: { provider_externalId: { provider, externalId: f.externalId } }, update: data, create: { provider, externalId: f.externalId, ...data } });
       }
       await db.league.update({ where: { id: league.id }, data: { lastSyncAt: new Date() } });
-      report[l.name] = { fixtures: keep.length, ...(errors.length ? { errors } : {}), ...await rateAndPredictLeague(db, league.id, {
+      const upcoming = keep.filter((f) => f.status === "SCHEDULED" && f.kickoffUtc > now).length;
+      report[l.name] = { fixtures: keep.length, upcoming, ...(errors.length ? { errors } : {}), ...await rateAndPredictLeague(db, league.id, {
         now,
         newsLoader: async (fx) => {
           if (fx.kickoffUtc.getTime() - now.getTime() > 24 * 3600_000) return null; // only fetch news close to kickoff
