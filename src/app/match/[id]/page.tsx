@@ -167,9 +167,12 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
               {(Object.keys(GROUP_LABEL) as MarketGroup[]).map((g) => {
                 const rows = markets.filter((m) => m.group === g);
                 return (
-                  <div key={g}>
-                    <div className="mb-1 text-[11px] text-slate-500">{GROUP_LABEL[g]}</div>
-                    {rows.length ? (
+                  <details key={g} open={["win", "goals"].includes(g)} className="rounded-xl border hairline bg-white/[0.02] px-3 py-2 [&_summary::-webkit-details-marker]:hidden">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-2 py-1 text-[12px] text-slate-300">
+                      <span>{GROUP_LABEL[g]} <span className="text-slate-500">({rows.length})</span></span>
+                      <span className="num text-[11px] text-slate-500">{rows.length ? `best ${pct(Math.max(...rows.map((m) => m.p)))}` : "—"}</span>
+                    </summary>
+                    <div className="pt-2">{rows.length ? (
                       <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
                         {rows.map((m) => {
                           const h = done ? marketHit(m.key, { h: fx.homeGoals!, a: fx.awayGoals!, hc: fx.homeCorners, ac: fx.awayCorners, hs: fx.homeShots, as: fx.awayShots, hh: fx.htHome, ha: fx.htAway }, { corners: p.cornersLine, shots: p.shotsLine }) : null;
@@ -199,7 +202,8 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                         ); })}</tbody>
                       </table>
                     )}
-                  </div>
+                    </div>
+                  </details>
                 );
               })}
             </div>

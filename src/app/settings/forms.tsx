@@ -1,7 +1,8 @@
 "use client";
-import { useActionState } from "react";
+import { useActionState, useState, useTransition } from "react";
 import { saveFloors, saveKeys, savePrefs, testConnection, unlock, type ActionState } from "./actions";
 import { cn } from "@/components/ui";
+import { lockNow, saveAccessCode } from "@/app/unlock/actions";
 
 const input = "focus-ring w-full rounded-lg border hairline bg-black/30 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600";
 const btn = "focus-ring rounded-lg border border-edge/40 px-3 py-1.5 text-sm text-edge hover:bg-edge/10 disabled:opacity-50";
@@ -88,5 +89,28 @@ export function PrefsForm({ bookie }: { bookie: string }) {
       <button className={btn} disabled={pending}>Save</button>
       <div className="w-full"><Status s={s} /></div>
     </form>
+  );
+}
+
+export function AccessCodeForm({ isSet }: { isSet: boolean }) {
+  const [code, setCode] = useState("");
+  const [s, setS] = useState<{ ok: boolean; message: string } | null>(null);
+  const [pending, start] = useTransition();
+  const run = (fn: () => Promise<{ ok: boolean; message: string }>) => start(async () => { setS(await fn()); setCode(""); });
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-slate-400">
+        {isSet ? "An access code is set: everyone is asked for it before seeing predictions, and the app locks again after 30 minutes of inactivity. Settings always stays reachable with your PIN."
+          : "No access code: anyone with the link can see the app. Set one to keep it private."}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <input value={code} onChange={(e) => setCode(e.target.value)} type="text" autoComplete="off" placeholder={isSet ? "New code (4–32 characters)" : "Access code (4–32 characters)"}
+          className="focus-ring min-w-0 flex-1 rounded-lg border hairline bg-black/30 px-3 py-2 text-sm text-slate-100" />
+        <button className={btn} disabled={pending || code.trim().length < 4} onClick={() => run(() => saveAccessCode(code))}>{isSet ? "Change code" : "Set code"}</button>
+        {isSet && <button className={btn} disabled={pending} onClick={() => run(() => saveAccessCode(null))}>Remove code</button>}
+        {isSet && <button className={btn} disabled={pending} onClick={() => run(lockNow)}>Lock this device now</button>}
+      </div>
+      <Status s={s} />
+    </div>
   );
 }

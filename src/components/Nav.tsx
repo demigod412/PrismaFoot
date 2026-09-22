@@ -59,9 +59,12 @@ export function LeftRail({ leagues }: { leagues: { id: string; name: string; cou
         {item("/settings", "Settings", Settings, path.startsWith("/settings"))}
       </nav>
       <div>
-        <div className="px-2.5 pb-2 text-xs text-slate-500">Leagues</div>
+        <div className="flex items-baseline justify-between px-2.5 pb-2 text-xs text-slate-500">
+          <span>Leagues</span>
+          {leagues.length > 12 && <Link href="/leagues" className="focus-ring text-[11px] text-slate-400 hover:text-edge">all {leagues.length}</Link>}
+        </div>
         <ul className="space-y-0.5">
-          {leagues.map((l) => (
+          {leagues.slice(0, 12).map((l) => (
             <li key={l.id}>
               <Link href={`/league/${l.id}`} className={cn("focus-ring block truncate rounded-lg px-2.5 py-1.5 text-[13px] transition-colors duration-200",
                 path === `/league/${l.id}` ? "bg-white/[0.06] text-slate-100" : "text-slate-400 hover:text-slate-200")}>

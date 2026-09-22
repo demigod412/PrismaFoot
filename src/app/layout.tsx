@@ -6,7 +6,12 @@ import { BottomTabs, LeftRail } from "@/components/Nav";
 import { Disclaimer } from "@/components/Disclaimer";
 import { DemoBanner } from "@/components/DemoBanner";
 import { InstallPrompt } from "@/components/InstallPrompt";
+import { cookies, headers } from "next/headers";
 import { dataMode } from "@/lib/mode";
+import { getSetting } from "@/lib/secrets";
+import { ACCESS_COOKIE, IDLE_MINUTES, isOpenPath, readToken } from "@/lib/access";
+import { secretFor } from "@/lib/accessSecret";
+import { UnlockScreen } from "@/components/UnlockScreen";
 import { getLeagues } from "@/lib/queries";
 
 const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains", display: "swap" });
@@ -22,12 +27,23 @@ export const viewport: Viewport = { themeColor: "#0B1220", width: "device-width"
 export const dynamic = "force-dynamic";
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Access gate: everything except Settings needs the code, if one is set.
+  let locked = false;
+  try {
+    const stored = await getSetting<{ salt: string; hash: string } | null>("accessCode", null);
+    if (stored) {
+      const path = (await headers()).get("x-pathname") ?? "/";
+      const t = await readToken((await cookies()).get(ACCESS_COOKIE)?.value, secretFor(stored));
+      locked = !t.valid && !isOpenPath(path);
+    }
+  } catch { /* DB down: leave the app open rather than locking everyone out */ }
   let mode: Awaited<ReturnType<typeof dataMode>> = { demo: true, provider: "DEMO", lastSync: null };
   let leagues: { id: string; name: string; country: string }[] = [];
   try { mode = await dataMode(); leagues = await getLeagues(); } catch { /* DB down: pages render their own error states */ }
   return (
     <html lang="en" className={`${GeistSans.variable} ${mono.variable}`}>
       <body className="min-h-dvh font-sans antialiased">
+        {locked ? <UnlockScreen minutes={IDLE_MINUTES} /> : <>
         <DemoBanner demo={mode.demo} lastSync={mode.lastSync} />
         <div className="flex">
           <LeftRail leagues={leagues} />
@@ -38,6 +54,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         </div>
         <BottomTabs />
         <InstallPrompt />
+        </>}
       </body>
     </html>
   );

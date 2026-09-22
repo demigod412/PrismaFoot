@@ -4,7 +4,7 @@ import { addDays, format } from "date-fns";
 const ymd = (d: Date) => format(d, "yyyy-MM-dd");
 import type { FootballProvider, PFixture } from "../providers/types";
 import { PROVIDER_ENUM, THROTTLE_MS } from "../providers/constants";
-import { LEAGUE_ALLOWLIST, POOL_SETTINGS } from "../leagues";
+import { entryFor, LEAGUE_ALLOWLIST, POOL_SETTINGS } from "../leagues";
 import { FIXTURE_WINDOW_DAYS } from "../window";
 import { rateAndPredictLeague } from "./predict";
 import { lockDue, refitCalibration, settle, snapshotAccuracy } from "./ledger";
@@ -31,13 +31,13 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
   const report: Record<string, unknown> = {};
   try {
     // Pooled competitions (European cups, internationals) last, so they see this run's domestic results.
-    const leagues = (await p.getLeagues()).filter((l) => allow.some((a) => a.id === l.externalId))
-      .sort((x, y) => Number(!!allow.find((a) => a.id === x.externalId)?.pool) - Number(!!allow.find((a) => a.id === y.externalId)?.pool));
+    const leagues = (await p.getLeagues()).filter((l) => entryFor(allow, l))
+      .sort((x, y) => Number(!!entryFor(allow, x)?.pool) - Number(!!entryFor(allow, y)?.pool));
     let injuryCalls = 0, statsCalls = 0, oddsCalls = 0;
     const ODDS_CAP = Number(process.env.MAX_ODDS_CALLS) || 30;
     const STATS_CAP = Number(process.env.MAX_STATS_CALLS) || 30;
     for (const l of leagues) {
-      const entry = allow.find((a) => a.id === l.externalId)!;
+      const entry = entryFor(allow, l)!;
       const pool = entry.pool ? POOL_SETTINGS[entry.pool] : undefined;
       const league = await db.league.upsert({
         where: { provider_externalId_season: { provider, externalId: l.externalId, season: l.season } },

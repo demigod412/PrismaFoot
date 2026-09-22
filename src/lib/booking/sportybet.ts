@@ -1,5 +1,5 @@
 import "server-only";
-import type { MarketKey } from "../markets";
+import { parseLineKey, type MarketKey } from "../markets";
 
 /*
  * Sportybet booking code — BEST EFFORT, UNOFFICIAL.
@@ -59,7 +59,16 @@ export function resolveSelection(e: SbEvent, key: MarketKey): Selection | { erro
     return o ? { eventId: e.eventId, marketId: m.id, specifier: m.specifier ?? null, outcomeId: o.id } : { error: "selection not available" };
   };
   const total = (line: string) => ms.find((m) => m.id === "18" && m.specifier === `total=${line}`);
+  const onLine = parseLineKey(key);
+  if (onLine) {
+    if (onLine.base === "shots") return { error: "total shots aren't offered on Sportybet" };
+    return pick(ms.find((m) => has(m.desc, "corner") && m.specifier === `total=${onLine.line}`), (o) => has(o.desc, onLine.side));
+  }
   switch (key) {
+    case "ht_draw": return pick(ms.find((m) => m.id === "60"), (o) => o.id === "2" || has(o.desc, "draw"));
+    case "h1_under15": return pick(ms.find((m) => m.id === "68" && m.specifier === "total=1.5"), (o) => has(o.desc, "under"));
+    case "h1_under25": return pick(ms.find((m) => m.id === "68" && m.specifier === "total=2.5"), (o) => has(o.desc, "under"));
+    case "h2_under25": return pick(ms.find((m) => m.id === "90" && m.specifier === "total=2.5"), (o) => has(o.desc, "under"));
     case "home": return pick(ms.find((m) => m.id === "1"), (o) => o.id === "1" || has(o.desc, "home"));
     case "draw": return pick(ms.find((m) => m.id === "1"), (o) => o.id === "2" || has(o.desc, "draw"));
     case "away": return pick(ms.find((m) => m.id === "1"), (o) => o.id === "3" || has(o.desc, "away"));
@@ -78,9 +87,6 @@ export function resolveSelection(e: SbEvent, key: MarketKey): Selection | { erro
     case "away_by2": return pick(ms.find((m) => m.id === "16" && m.specifier === "hcp=1.5"), (o) => has(o.desc, "away") || o.id === "1715");
     case "corners_over": return pick(ms.find((m) => has(m.desc, "corner") && m.specifier === "total=8.5"), (o) => has(o.desc, "over"));
     case "corners_under": return pick(ms.find((m) => has(m.desc, "corner") && m.specifier === "total=8.5"), (o) => has(o.desc, "under"));
-    case "h1_under15": return pick(ms.find((m) => m.id === "68" && m.specifier === "total=1.5"), (o) => has(o.desc, "under"));
-    case "h1_under25": return pick(ms.find((m) => m.id === "68" && m.specifier === "total=2.5"), (o) => has(o.desc, "under"));
-    case "h2_under25": return pick(ms.find((m) => m.id === "90" && m.specifier === "total=2.5"), (o) => has(o.desc, "under"));
     case "home_or_over25": case "away_or_over25": return { error: "\"win or over\" isn't offered as one selection on Sportybet" };
     default: return { error: "market not supported by Sportybet export" };
   }

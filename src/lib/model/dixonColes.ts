@@ -109,6 +109,16 @@ export function halfUnders(m: Matrix, s: number) {
   return { h1u15, h1u25, h2u25 };
 }
 
+/** Half-time result from independent first-half Poissons (λ × share). */
+export function halfTimeResult(lambdaHome: number, lambdaAway: number, s: number) {
+  const lh = lambdaHome * s, la = lambdaAway * s, N = 8;
+  const p = (l: number, k: number) => { let t = Math.exp(-l); for (let i = 1; i <= k; i++) t *= l / i; return t; };
+  let home = 0, draw = 0, away = 0;
+  for (let i = 0; i <= N; i++) for (let j = 0; j <= N; j++) { const q = p(lh, i) * p(la, j); if (i > j) home += q; else if (i === j) draw += q; else away += q; }
+  const tot = home + draw + away;
+  return { home: home / tot, draw: draw / tot, away: away / tot };
+}
+
 /** P(side wins OR 3+ goals) — "win or over 2.5". */
 export function winOrOver(m: Matrix, line = 2.5) {
   let home = 0, away = 0, homeAndOver = 0, awayAndOver = 0;

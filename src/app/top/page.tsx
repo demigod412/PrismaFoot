@@ -8,6 +8,7 @@ import { flatStakeRoi, selectTopValue, valueTips, VALUE, type ValueTip } from "@
 import type { QuoteMap } from "@/lib/odds";
 import { dayKey, fmtUtc, fmtWat, watDayStart } from "@/lib/time";
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
+import { FilterSelect } from "@/components/FilterSelect";
 import { EmptyState } from "@/components/EmptyState";
 import { PullToRefresh } from "@/components/PullToRefresh";
 import { AddToSlip } from "@/components/AddToSlip";
@@ -142,13 +143,12 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
       <nav data-no-ptr aria-label="Time window" className="-mx-4 mb-3 flex gap-1.5 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0">
         {WINDOWS.map((d) => <Link key={d} href={href({ days: d })}><Chip active={d === days}>{windowLabel(d)}</Chip></Link>)}
       </nav>
-      <div data-no-ptr className="-mx-4 mb-3 flex gap-1.5 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0">
-        {FOCUS.map(([f, label]) => <Link key={label} href={href({ focus: f ?? null })}><Chip active={focus === f}>{label}</Chip></Link>)}
+      <div data-no-ptr className="mb-4 grid gap-2 sm:grid-cols-2">
+        <FilterSelect label="Competitions" value={focus ?? "all"} options={FOCUS.map(([f, label]) => ({ value: f ?? "all", label, href: href({ focus: f ?? null }) }))} />
+        <FilterSelect label="Market" value={group ?? "all"}
+          options={[{ value: "all", label: "All markets", href: href({ market: null }) }, ...GROUPS.map((g) => ({ value: g, label: GROUP_LABEL[g], href: href({ market: g }) }))]} />
       </div>
-      <div data-no-ptr className="-mx-4 mb-5 flex gap-1.5 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0">
-        <Link href={href({ market: null })}><Chip active={!group}>All markets</Chip></Link>
-        {GROUPS.map((g) => <Link key={g} href={href({ market: g })}><Chip active={group === g}>{GROUP_LABEL[g]}</Chip></Link>)}
-      </div>
+      
 
       {shown === 0 ? (
         <EmptyState title={list === "value" && !quotesAvailable ? "No bookmaker odds yet" : `No qualifying tips ${days === 1 ? "left today" : "in this window"}`}

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.1 — many more leagues, calmer screens
+- **~50 more competitions** are synced when your plan includes them (API-Football): Scotland, Belgium, Turkey, Greece, Switzerland, Austria, Denmark, Norway, Sweden, Finland, Iceland, Poland, Czechia, Slovakia, Hungary, Romania, Bulgaria, Croatia, Serbia, Slovenia, Ukraine, Russia, Cyprus, Israel, Ireland, Bosnia, plus Saudi Arabia, UAE, Qatar, Japan, South Korea, China, Australia, India, Brazil (A and B), Argentina, Mexico, MLS, Chile, Colombia, Uruguay, Peru, Ecuador, Egypt, Morocco, Algeria, Tunisia, South Africa, Ghana, Kenya, CAF Champions League, Copa Libertadores and Sudamericana.
+  Leagues are matched by **country + name** rather than a fixed id, so they work on any plan without hunting for league numbers, and European leagues feed the shared club-strength pool.
+- **Calmer screens:** long chip rows replaced by compact dropdowns — Fixtures (league, market), Top 20 (competitions, market), Scanners (competitions). Markets on a match page are grouped into collapsible sections (Win and Goals open by default) with the best probability shown on each closed section. The Leagues page groups by country with a letter jump, and the sidebar lists 12 leagues with an "all" link.
+
+## 0.7.0 — per-fixture corner / shot lines, half-time draw, access code
+- **Corners and shots now use each fixture's own lines.** The main line is the .5 line closest to a 50/50 split for that match (bookmaker style) instead of a fixed 8.5 / 24.5; alternatives are offered at ±1, ±2, ±3 corners and ±2, ±4, ±6 shots, **with Over and Under on every line**. The best corner/shot pick is the most aggressive offered line that still clears your floor. Older predictions keep their 8.5 / 24.5 lines and stay scored correctly.
+- **Half-time draw** market (from each league's fitted first-half scoring share), with its own scanner and floor; scored from the stored half-time result.
+- **Access code:** a full-screen code prompt covers the app until the code is entered. Set, change or remove it in Settings (PIN-protected), which always stays reachable. It locks again after 30 minutes of inactivity, each page view extends the window, and "Lock this device now" is available. The code is stored hashed; changing it signs every device out. After 5 wrong codes the form is locked for 5 minutes (tracked on the server, so clearing the phone doesn't reset it).
+- Results job also re-reads the last 12 hours of finished matches, so a score the provider corrects after full time is picked up.
+- Sportybet export handles the new corner lines and the half-time draw.
+
 ## 0.6.0 — halves, win or over, more leagues
 - **New markets:** 1st half Under 1.5, 1st half Under 2.5, 2nd half Under 2.5, Home win or Over 2.5, Away win or Over 2.5 — on match pages (All markets), scanners, fixtures filter, Top 20 (new "Halves" and "Win or Over 2.5" filters), Blend and slips.
   Halves use each league's fitted share of first-half goals (from half-time scores, shrunk to 45%); half markets are scored from the stored half-time result.

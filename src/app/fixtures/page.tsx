@@ -5,18 +5,24 @@ import { prisma } from "@/lib/db";
 import { dataMode } from "@/lib/mode";
 import { DateNav } from "@/components/DateNav";
 import { FixtureList } from "@/components/FixtureList";
+import { FilterSelect } from "@/components/FilterSelect";
 import { EmptyState } from "@/components/EmptyState";
 import { PullToRefresh } from "@/components/PullToRefresh";
 import { Chip } from "@/components/ui";
 import { scan, DEFAULT_FLOORS, type ScannerSlug } from "@/lib/scanners";
 
 export const metadata = { title: "Fixtures" };
-const MARKETS: { slug: ScannerSlug; label: string }[] = [
-  { slug: "all", label: "All" }, { slug: "win", label: "Win" }, { slug: "o15", label: "O1.5" }, { slug: "o25", label: "O2.5" },
-  { slug: "dc", label: "Double chance" }, { slug: "btts", label: "BTTS" }, { slug: "bttsno", label: "BTTS No" }, { slug: "by2", label: "Win by 2+" },
-  { slug: "corners", label: "Corners" }, { slug: "shots", label: "Shots" }, { slug: "u25", label: "U2.5" }, { slug: "u35", label: "U3.5" }, { slug: "u45", label: "U4.5" },
-  { slug: "h1u15", label: "1H U1.5" }, { slug: "h1u25", label: "1H U2.5" }, { slug: "h2u25", label: "2H U2.5" }, { slug: "winover", label: "Win or O2.5" },
-  { slug: "draw", label: "Draw" }, { slug: "safe", label: "Safe" },
+const MARKETS: { slug: ScannerSlug; label: string; group: string }[] = [
+  { slug: "all", label: "All markets", group: "" },
+  { slug: "win", label: "Win", group: "Result" }, { slug: "dc", label: "Double chance", group: "Result" }, { slug: "draw", label: "Draw", group: "Result" },
+  { slug: "winover", label: "Win or Over 2.5", group: "Result" }, { slug: "by2", label: "Win by 2+", group: "Result" },
+  { slug: "o15", label: "Over 1.5", group: "Goals" }, { slug: "o25", label: "Over 2.5", group: "Goals" }, { slug: "u25", label: "Under 2.5", group: "Goals" },
+  { slug: "u35", label: "Under 3.5", group: "Goals" }, { slug: "u45", label: "Under 4.5", group: "Goals" },
+  { slug: "btts", label: "Both teams to score", group: "Goals" }, { slug: "bttsno", label: "BTTS No", group: "Goals" },
+  { slug: "h1u15", label: "1st half Under 1.5", group: "Halves" }, { slug: "h1u25", label: "1st half Under 2.5", group: "Halves" },
+  { slug: "h2u25", label: "2nd half Under 2.5", group: "Halves" }, { slug: "htdraw", label: "Half-time draw", group: "Halves" },
+  { slug: "corners", label: "Corners", group: "Stats" }, { slug: "shots", label: "Total shots", group: "Stats" },
+  { slug: "safe", label: "Safe picks", group: "Other" },
 ];
 
 export default async function Fixtures({ searchParams }: { searchParams: Promise<{ date?: string; league?: string; market?: string }> }) {
@@ -43,12 +49,11 @@ export default async function Fixtures({ searchParams }: { searchParams: Promise
     <PullToRefresh>
       <h1 className="mb-4 text-2xl font-semibold tracking-tight">Fixtures</h1>
       <DateNav active={date} base="/fixtures" extra={`${sp.league ? `&league=${sp.league}` : ""}${market !== "all" ? `&market=${market}` : ""}`} />
-      <div data-no-ptr className="mb-3 flex gap-1.5 overflow-x-auto pb-1">
-        <Link href={q({ league: undefined })}><Chip active={!sp.league}>All leagues</Chip></Link>
-        {leagues.map((l) => <Link key={l.id} href={q({ league: l.id })}><Chip active={sp.league === l.id}>{l.name}</Chip></Link>)}
-      </div>
-      <div data-no-ptr className="mb-5 flex gap-1.5 overflow-x-auto pb-1">
-        {MARKETS.map((m) => <Link key={m.slug} href={q({ market: m.slug })}><Chip active={market === m.slug}>{m.label}</Chip></Link>)}
+      <div data-no-ptr className="mb-5 grid gap-2 sm:grid-cols-2">
+        <FilterSelect label="League" value={sp.league ?? "all"}
+          options={[{ value: "all", label: `All leagues (${leagues.length})`, href: `/fixtures${q({ league: undefined })}` },
+            ...leagues.map((l) => ({ value: l.id, label: l.name, group: l.country, href: `/fixtures${q({ league: l.id })}` }))]} />
+        <FilterSelect label="Market" value={market} options={MARKETS.map((m) => ({ value: m.slug, label: m.label, group: m.group, href: `/fixtures${q({ market: m.slug })}` }))} />
       </div>
       {shown.length ? <FixtureList fixtures={shown} picks={picks} />
         : all.length

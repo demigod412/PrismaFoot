@@ -185,6 +185,9 @@ model Prediction {
   expShots      Float?
   rawShotsOver  Float?
   calShotsOver  Float?
+  cornerLines   Json?    // [{ l: line, o: P(over) }] — offered corner lines for THIS match
+  shotLines     Json?    // same for total shots
+  calHtDraw     Float?   // draw at half-time
   // Unders are complements of the calibrated overs: under_x = 1 − over_x (lines 2.5 / 3.5 / 4.5).
   calBtts       Float
   calibrationId String?

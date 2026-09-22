@@ -7,8 +7,10 @@ export type MarketKey =
   | "over15" | "over25" | "over35" | "under25" | "under35" | "under45"
   | "btts_yes" | "btts_no"
   | "home_by2" | "away_by2"
-  | "corners_over" | "corners_under"
+  | "corners_over" | "corners_under"   // legacy fixed-line keys (older predictions)
   | "shots_over" | "shots_under"
+  | `corners_over@${number}` | `corners_under@${number}` | `shots_over@${number}` | `shots_under@${number}`
+  | "ht_draw"
   | "h1_under15" | "h1_under25" | "h2_under25"
   | "home_or_over25" | "away_or_over25";
 
@@ -17,7 +19,31 @@ export const GROUP_LABEL: Record<MarketGroup, string> = {
   win: "Win", dc: "Double chance", goals: "Goals O/U", btts: "Both teams to score", hcp: "2-goal handicap", halves: "Halves", combo: "Win or Over 2.5", corners: "Corners", shots: "Total shots",
 };
 
-export interface MarketTip { key: MarketKey; group: MarketGroup; label: string; short: string; p: number }
+export interface MarketTip { key: MarketKey; group: MarketGroup; label: string; short: string; p: number; line?: number; main?: boolean; strong?: boolean; alt?: boolean }
+
+/** Corner / shot lines are per fixture, so the line travels in the key: "corners_over@10.5". */
+export const lineKey = (base: "corners" | "shots", side: "over" | "under", line: number) => `${base}_${side}@${line}` as MarketKey;
+export const parseLineKey = (k: string) => { const m = /^(corners|shots)_(over|under)@(-?\d+(?:\.\d+)?)$/.exec(k); return m ? { base: m[1] as "corners" | "shots", side: m[2] as "over" | "under", line: Number(m[3]) } : null; };
+const STRONG_FLOOR = 0.65;
+type LadderRow = { l: number; o: number };
+const ladderOf = (v: unknown): LadderRow[] => (Array.isArray(v) ? (v as LadderRow[]).filter((r) => typeof r?.l === "number" && typeof r?.o === "number") : []);
+
+/** Offered lines for corners / shots: Over and Under on each, with the main line and the strong line flagged. */
+function lineMarkets(base: "corners" | "shots", rows: LadderRow[], main: number | null, unit: string, group: MarketGroup): MarketTip[] {
+  if (!rows.length) return [];
+  const mainRow = rows.find((r) => r.l === main) ?? rows[Math.floor(rows.length / 2)];
+  const lean: "over" | "under" = mainRow.o >= 0.5 ? "over" : "under";
+  const strong = lean === "over"
+    ? rows.filter((r) => r.o >= STRONG_FLOOR).sort((a, b) => b.l - a.l)[0]
+    : rows.filter((r) => 1 - r.o >= STRONG_FLOOR).sort((a, b) => a.l - b.l)[0];
+  return rows.flatMap((r) => (["over", "under"] as const).map((side) => ({
+    key: lineKey(base, side, r.l), group, line: r.l,
+    label: `${side === "over" ? "Over" : "Under"} ${r.l} ${unit}`, short: `${unit === "corners" ? "Corners" : "Shots"} ${side === "over" ? "O" : "U"}${r.l}`,
+    p: side === "over" ? r.o : 1 - r.o,
+    ...(r.l === mainRow.l ? { main: true } : { alt: true }),
+    ...(strong && strong.l === r.l && side === lean ? { strong: true } : {}),
+  })));
+}
 
 /** All markets for one match. Corners/shots only when the model has enough stats history. */
 export function allMarkets(p: Prediction, home: string, away: string): MarketTip[] {
@@ -50,23 +76,34 @@ export function allMarkets(p: Prediction, home: string, away: string): MarketTip
     { key: "home_or_over25", group: "combo", label: `${home} win or Over 2.5 goals`, short: "Home or O2.5", p: p.calHomeOrOver25 },
     { key: "away_or_over25", group: "combo", label: `${away} win or Over 2.5 goals`, short: "Away or O2.5", p: p.calAwayOrOver25 },
   );
-  if (p.calCornersOver != null && p.cornersLine != null) out.push(
-    { key: "corners_over", group: "corners", label: `Over ${p.cornersLine} corners`, short: `Corners O${p.cornersLine}`, p: p.calCornersOver },
-    { key: "corners_under", group: "corners", label: `Under ${p.cornersLine} corners`, short: `Corners U${p.cornersLine}`, p: 1 - p.calCornersOver },
+  if (p.calHtDraw != null) out.push({ key: "ht_draw", group: "halves", label: "Draw at half-time", short: "HT draw", p: p.calHtDraw });
+  const cRows = ladderOf(p.cornerLines), sRows = ladderOf(p.shotLines);
+  if (cRows.length) out.push(...lineMarkets("corners", cRows, p.cornersLine, "corners", "corners"));
+  else if (p.calCornersOver != null && p.cornersLine != null) out.push( // older predictions: the old fixed line
+    { key: "corners_over", group: "corners", label: `Over ${p.cornersLine} corners`, short: `Corners O${p.cornersLine}`, p: p.calCornersOver, line: p.cornersLine, main: true },
+    { key: "corners_under", group: "corners", label: `Under ${p.cornersLine} corners`, short: `Corners U${p.cornersLine}`, p: 1 - p.calCornersOver, line: p.cornersLine, main: true },
   );
-  if (p.calShotsOver != null && p.shotsLine != null) out.push(
-    { key: "shots_over", group: "shots", label: `Over ${p.shotsLine} total shots`, short: `Shots O${p.shotsLine}`, p: p.calShotsOver },
-    { key: "shots_under", group: "shots", label: `Under ${p.shotsLine} total shots`, short: `Shots U${p.shotsLine}`, p: 1 - p.calShotsOver },
+  if (sRows.length) out.push(...lineMarkets("shots", sRows, p.shotsLine, "shots", "shots"));
+  else if (p.calShotsOver != null && p.shotsLine != null) out.push(
+    { key: "shots_over", group: "shots", label: `Over ${p.shotsLine} total shots`, short: `Shots O${p.shotsLine}`, p: p.calShotsOver, line: p.shotsLine, main: true },
+    { key: "shots_under", group: "shots", label: `Under ${p.shotsLine} total shots`, short: `Shots U${p.shotsLine}`, p: 1 - p.calShotsOver, line: p.shotsLine, main: true },
   );
   return out;
 }
 
 export interface MatchResult { h: number; a: number; hc?: number | null; ac?: number | null; hs?: number | null; as?: number | null; hh?: number | null; ha?: number | null /* half-time */ }
 
-/** true/false = hit/miss; null = can't be scored (no corner/shot data). */
+/** true/false = hit/miss; null = can't be scored (no corner/shot/half-time data). */
 export function marketHit(k: MarketKey, r: MatchResult, lines: { corners?: number | null; shots?: number | null } = {}): boolean | null {
   const { h, a } = r, t = h + a;
+  const onLine = parseLineKey(k);
+  if (onLine) {
+    const [x, y] = onLine.base === "corners" ? [r.hc, r.ac] : [r.hs, r.as];
+    if (x == null || y == null) return null;
+    return onLine.side === "over" ? x + y > onLine.line : x + y < onLine.line;
+  }
   switch (k) {
+    case "ht_draw": return r.hh == null || r.ha == null ? null : r.hh === r.ha;
     case "home": return h > a; case "away": return a > h; case "draw": return h === a;
     case "dc_1x": return h >= a; case "dc_x2": return a >= h; case "dc_12": return h !== a;
     case "over15": return t >= 2; case "over25": return t >= 3; case "over35": return t >= 4;
@@ -88,4 +125,5 @@ export function marketHit(k: MarketKey, r: MatchResult, lines: { corners?: numbe
       return k === "shots_over" ? r.hs + r.as > lines.shots : r.hs + r.as < lines.shots;
     }
   }
+  return null; // template-literal line keys are handled above
 }

@@ -6,6 +6,7 @@ import { SCANNERS, scan, DEFAULT_FLOORS, type ScannerFloors, type ScannerSlug } 
 import { getSetting } from "@/lib/secrets";
 import { allMarkets } from "@/lib/markets";
 import { FixtureList } from "@/components/FixtureList";
+import { FilterSelect } from "@/components/FilterSelect";
 import { EmptyState } from "@/components/EmptyState";
 import { Chip } from "@/components/ui";
 import { BlendBuilder, type BlendCandidate } from "@/components/BlendBuilder";
@@ -19,11 +20,11 @@ export default async function ScannerPage({ params, searchParams }: { params: Pr
   const now = new Date();
   const fixtures = (await getBoard({ from: now, to: new Date(now.getTime() + FIXTURE_WINDOW_DAYS * 86_400_000), focus })).filter((f) => f.predictions[0]);
   const focusChips = (
-    <div className="mb-4 flex gap-1.5">
-      {[[undefined, "All leagues"], ["europe-strong", "Europe strongest"], ["england", "England"], ["europe-other", "Europe other"], ["americas", "Americas"], ["africa", "Africa"], ["asia", "Asia"], ["international", "International"]].map(([f, l]) => (
-        <Link key={l} href={f ? `?focus=${f}` : "?"}><Chip active={focus === f}>{l}</Chip></Link>
-      ))}
-    </div>
+    <div data-no-ptr className="mb-4 max-w-xs">
+        <FilterSelect label="Competitions" value={focus ?? "all"}
+          options={[["all", "All leagues"], ["europe-strong", "Europe strongest"], ["england", "England"], ["europe-other", "Europe other"], ["americas", "Americas"], ["africa", "Africa"], ["asia", "Asia"], ["international", "International"]]
+            .map(([v, l]) => ({ value: v, label: l, href: v === "all" ? "?" : `?focus=${v}` }))} />
+      </div>
   );
 
   if (def.slug === "blend") {

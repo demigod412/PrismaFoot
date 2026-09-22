@@ -67,6 +67,20 @@ function pmf(k: number, mu: number, r: number | null) {
   return Math.exp(lgamma(k + r) - lgamma(r) - lgamma(k + 1) + r * Math.log(r / (r + mu)) + k * Math.log(mu / (r + mu)));
 }
 
+/**
+ * Offered lines for one match: the main line is the .5 line closest to a 50/50 split (where a bookmaker posts it),
+ * with alternatives either side. Returns every line with its Over probability.
+ */
+export function totalLadder(fit: RateFit, homeId: string, awayId: string, offsets: number[]) {
+  const base = predictTotal(fit, homeId, awayId, 0.5);
+  const near = Math.round(base.expected - 0.5) + 0.5;
+  const cand = [-3, -2, -1, 0, 1, 2, 3].map((k) => near + k).filter((l) => l > 0);
+  const overAt = (l: number) => predictTotal(fit, homeId, awayId, l).over;
+  const main = cand.reduce((b, l) => (Math.abs(overAt(l) - 0.5) < Math.abs(overAt(b) - 0.5) ? l : b), cand[0]);
+  const lines = [...new Set(offsets.map((o) => main + o))].filter((l) => l > 0).sort((a, b) => a - b);
+  return { expected: base.expected, sample: base.sample, main, rows: lines.map((line) => ({ line, over: overAt(line) })) };
+}
+
 export function predictTotal(fit: RateFit, homeId: string, awayId: string, line: number) {
   const th = fit.teams.get(homeId) ?? { a: 1, d: 1, n: 0 }, ta = fit.teams.get(awayId) ?? { a: 1, d: 1, n: 0 };
   const mh = fit.base * th.a * ta.d * fit.home, ma = fit.base * ta.a * th.d, mu = mh + ma;

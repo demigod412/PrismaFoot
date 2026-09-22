@@ -1,12 +1,11 @@
 import type { Prediction } from "@prisma/client";
+import { allMarkets, type MarketKey, type MarketTip } from "./markets";
 
-export type Market = "home" | "draw" | "away" | "over15" | "over25" | "over35" | "over45" | "btts" | "under25" | "under35" | "under45"
-  | "dc_1x" | "dc_x2" | "dc_12" | "btts_no" | "home_by2" | "away_by2" | "corners_over" | "corners_under" | "shots_over" | "shots_under"
-  | "h1_under15" | "h1_under25" | "h2_under25" | "home_or_over25" | "away_or_over25";
+export type Market = MarketKey | "btts";
 export interface Pick { market: Market; label: string; p: number }
 
-export interface ScannerFloors { safeP: number; winMargin: number; o15: number; o25: number; btts: number; draw: number; team2: number; u25: number; u35: number; u45: number; dc: number; bttsNo: number; by2: number; corners: number; shots: number; h1u15: number; h1u25: number; h2u25: number; winOver: number }
-export const DEFAULT_FLOORS: ScannerFloors = { safeP: 0.7, winMargin: 0.1, o15: 0.72, o25: 0.55, btts: 0.55, draw: 0.3, team2: 0.45, u25: 0.55, u35: 0.72, u45: 0.85, dc: 0.75, bttsNo: 0.55, by2: 0.4, corners: 0.6, shots: 0.6, h1u15: 0.6, h1u25: 0.78, h2u25: 0.7, winOver: 0.7 };
+export interface ScannerFloors { safeP: number; winMargin: number; o15: number; o25: number; btts: number; draw: number; team2: number; u25: number; u35: number; u45: number; dc: number; bttsNo: number; by2: number; corners: number; shots: number; h1u15: number; h1u25: number; h2u25: number; winOver: number; htDraw: number }
+export const DEFAULT_FLOORS: ScannerFloors = { safeP: 0.7, winMargin: 0.1, o15: 0.72, o25: 0.55, btts: 0.55, draw: 0.3, team2: 0.45, u25: 0.55, u35: 0.72, u45: 0.85, dc: 0.75, bttsNo: 0.55, by2: 0.4, corners: 0.6, shots: 0.6, h1u15: 0.6, h1u25: 0.78, h2u25: 0.7, winOver: 0.7, htDraw: 0.3 };
 
 export const SCANNERS = [
   { slug: "all", name: "All", blurb: "Every fixture with a model call, ordered by kickoff." },
@@ -22,8 +21,9 @@ export const SCANNERS = [
   { slug: "dc", name: "Double chance", blurb: "Best of 1X, X2 or 12 for each match, above your floor." },
   { slug: "bttsno", name: "BTTS No", blurb: "At least one side fails to score, above your floor." },
   { slug: "by2", name: "Win by 2+", blurb: "A side to win by two or more goals (handicap −1.5), above your floor." },
-  { slug: "corners", name: "Corners 8.5", blurb: "Over or under 8.5 total corners, above your floor. Needs match statistics (API-Football)." },
-  { slug: "shots", name: "Shots 24.5", blurb: "Over or under 24.5 total shots, above your floor. Needs match statistics (API-Football)." },
+  { slug: "corners", name: "Corners", blurb: "Corners at this fixture's own line: the strongest offered line, over or under, above your floor. Needs match statistics (API-Football)." },
+  { slug: "shots", name: "Shots", blurb: "Total shots at this fixture's own line, over or under, above your floor. Needs match statistics (API-Football)." },
+  { slug: "htdraw", name: "HT draw", blurb: "Draw at half-time, above your floor. Half-time draws land in roughly one match in four." },
   { slug: "h1u15", name: "1H U1.5", blurb: "First half Under 1.5 goals (0 or 1 goal before half-time), above your floor." },
   { slug: "h1u25", name: "1H U2.5", blurb: "First half Under 2.5 goals, above your floor. Most first halves land here, so the floor is set high." },
   { slug: "h2u25", name: "2H U2.5", blurb: "Second half Under 2.5 goals, above your floor." },
@@ -35,18 +35,21 @@ export const SCANNERS = [
 ] as const;
 export type ScannerSlug = (typeof SCANNERS)[number]["slug"];
 
-export const MARKET_LABEL: Record<Market, string> = {
+export const MARKET_LABEL: Partial<Record<Market, string>> & Record<string, string> = {
   home: "Home win", draw: "Draw", away: "Away win", over15: "Over 1.5", over25: "Over 2.5", over35: "Over 3.5", over45: "Over 4.5", btts: "BTTS", under25: "Under 2.5", under35: "Under 3.5", under45: "Under 4.5",
   dc_1x: "1X", dc_x2: "X2", dc_12: "12", btts_no: "BTTS No", home_by2: "Home −1.5", away_by2: "Away −1.5",
   corners_over: "Corners Over 8.5", corners_under: "Corners Under 8.5", shots_over: "Shots Over 24.5", shots_under: "Shots Under 24.5",
-  h1_under15: "1H Under 1.5", h1_under25: "1H Under 2.5", h2_under25: "2H Under 2.5", home_or_over25: "Home or Over 2.5", away_or_over25: "Away or Over 2.5",
+  h1_under15: "1H Under 1.5", h1_under25: "1H Under 2.5", h2_under25: "2H Under 2.5", home_or_over25: "Home or Over 2.5", away_or_over25: "Away or Over 2.5", ht_draw: "HT draw",
 };
+/** Label for any market key, including per-fixture corner / shot lines ("corners_over@10.5"). */
+export const labelOf = (m: Market) => MARKET_LABEL[m as keyof typeof MARKET_LABEL] ?? String(m).replace(/^(corners|shots)_(over|under)@/, (_x, b: string, s: string) => `${b[0].toUpperCase()}${b.slice(1)} ${s === "over" ? "Over" : "Under"} `);
 
 export function marketP(p: Prediction, m: Market): number {
+  const dyn = allMarkets(p, "Home", "Away").find((x) => x.key === m);
+  if (dyn) return dyn.p;
   switch (m) {
     case "home": return p.calHome; case "draw": return p.calDraw; case "away": return p.calAway;
     case "over15": return p.calOver15; case "over25": return p.calOver25; case "over35": return p.calOver35;
-    case "over45": return p.calOver45;
     case "btts": return p.calBtts;
     case "under25": return 1 - p.calOver25; case "under35": return 1 - p.calOver35; case "under45": return 1 - p.calOver45;
     case "dc_1x": return p.calHome + p.calDraw; case "dc_x2": return p.calDraw + p.calAway; case "dc_12": return p.calHome + p.calAway;
@@ -54,7 +57,9 @@ export function marketP(p: Prediction, m: Market): number {
     case "home_by2": return p.calHomeBy2 ?? 0; case "away_by2": return p.calAwayBy2 ?? 0;
     case "corners_over": return p.calCornersOver ?? 0; case "corners_under": return p.calCornersOver == null ? 0 : 1 - p.calCornersOver;
     case "shots_over": return p.calShotsOver ?? 0; case "shots_under": return p.calShotsOver == null ? 0 : 1 - p.calShotsOver;
+    default: return 0;
     case "h1_under15": return p.calH1Under15 ?? 0; case "h1_under25": return p.calH1Under25 ?? 0; case "h2_under25": return p.calH2Under25 ?? 0;
+    case "ht_draw": return p.calHtDraw ?? 0;
     case "home_or_over25": return p.calHomeOrOver25 ?? 0; case "away_or_over25": return p.calAwayOrOver25 ?? 0;
   }
 }
@@ -98,16 +103,15 @@ export function scan(slug: ScannerSlug, p: Prediction, f: ScannerFloors): Pick |
       const b = p.calHomeBy2 >= p.calAwayBy2 ? { market: "home_by2" as Market, label: "Home to win by 2+", p: p.calHomeBy2 } : { market: "away_by2" as Market, label: "Away to win by 2+", p: p.calAwayBy2 };
       return b.p >= f.by2 ? b : null;
     }
-    case "corners": {
-      if (p.calCornersOver == null) return null;
-      const b = p.calCornersOver >= 0.5 ? { market: "corners_over" as Market, label: `Corners Over ${p.cornersLine}`, p: p.calCornersOver } : { market: "corners_under" as Market, label: `Corners Under ${p.cornersLine}`, p: 1 - p.calCornersOver };
-      return b.p >= f.corners ? b : null;
+    case "corners": case "shots": {
+      const g = slug === "corners" ? "corners" : "shots";
+      const rows = allMarkets(p, "Home", "Away").filter((x) => x.group === g);
+      if (!rows.length) return null;
+      const b = (rows.find((x) => x.strong) ?? rows.filter((x) => x.main).sort((x, y) => y.p - x.p)[0]) as MarketTip;
+      const floor = slug === "corners" ? f.corners : f.shots;
+      return b && b.p >= floor ? { market: b.key, label: b.short, p: b.p } : null;
     }
-    case "shots": {
-      if (p.calShotsOver == null) return null;
-      const b = p.calShotsOver >= 0.5 ? { market: "shots_over" as Market, label: `Shots Over ${p.shotsLine}`, p: p.calShotsOver } : { market: "shots_under" as Market, label: `Shots Under ${p.shotsLine}`, p: 1 - p.calShotsOver };
-      return b.p >= f.shots ? b : null;
-    }
+    case "htdraw": return p.calHtDraw != null && p.calHtDraw >= f.htDraw ? { market: "ht_draw", label: "Draw at half-time", p: p.calHtDraw } : null;
     case "team2": { const h = teamAtLeast(m, "home", 2), a = teamAtLeast(m, "away", 2);
       const best = h >= a ? { market: "home" as Market, label: "Home 2+ goals", p: h } : { market: "away" as Market, label: "Away 2+ goals", p: a };
       return best.p >= f.team2 ? best : null; }

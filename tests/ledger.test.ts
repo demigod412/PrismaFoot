@@ -173,3 +173,41 @@ describe("halves and win-or-over", () => {
     expect(top.filter((x) => x.tip.key === "h1_under25" || x.tip.key === "h2_under25")).toHaveLength(1);
   });
 });
+
+import { lineKey, parseLineKey } from "@/lib/markets";
+import { issueToken, readToken } from "@/lib/access";
+describe("per-fixture corner / shot lines", () => {
+  const pred = (over: Record<number, number>) => ({ band: "MEDIUM", confidence: 60, calHome: 0.4, calDraw: 0.3, calAway: 0.3, calOver15: 0.6, calOver25: 0.4, calOver35: 0.2, calOver45: 0.08, calBtts: 0.45,
+    cornersLine: 10.5, calCornersOver: over[10.5], cornerLines: Object.entries(over).map(([l, o]) => ({ l: Number(l), o })) }) as never;
+  const rows = { 8.5: 0.78, 9.5: 0.66, 10.5: 0.52, 11.5: 0.38, 12.5: 0.26 };
+  it("offers Over and Under on every line, flags main and strong", () => {
+    const ms = allMarkets(pred(rows), "H", "A").filter((m) => m.group === "corners");
+    expect(ms).toHaveLength(10);
+    expect(ms.filter((m) => m.main)).toHaveLength(2);
+    const strong = ms.filter((m) => m.strong);
+    expect(strong).toHaveLength(1);
+    expect(strong[0].key).toBe(lineKey("corners", "over", 9.5)); // most aggressive line still ≥ 65%
+    expect(strong[0].p).toBeCloseTo(0.66);
+  });
+  it("keys carry the line and score against the match's corners", () => {
+    expect(parseLineKey("corners_over@10.5")).toEqual({ base: "corners", side: "over", line: 10.5 });
+    expect(marketHit("corners_over@10.5", { h: 1, a: 0, hc: 6, ac: 5 })).toBe(true);
+    expect(marketHit("corners_under@10.5", { h: 1, a: 0, hc: 6, ac: 5 })).toBe(false);
+    expect(marketHit("shots_over@24.5", { h: 1, a: 0 })).toBeNull();
+  });
+  it("alternative lines stay out of the Top 20 unless they are the strong line", () => {
+    const tips = tipsFor(pred(rows), "H", "A", "corners");
+    expect(tips.every((t) => t.main || t.strong)).toBe(true);
+  });
+});
+
+describe("access code tokens", () => {
+  it("accepts its own token, rejects expired, tampered or wrong-secret ones", async () => {
+    const good = await issueToken("secret-a", 30);
+    expect((await readToken(good, "secret-a")).valid).toBe(true);
+    expect((await readToken(good, "secret-b")).valid).toBe(false);   // code changed ⇒ every device signed out
+    expect((await readToken(`${good.slice(0, -1)}x`, "secret-a")).valid).toBe(false);
+    expect((await readToken(await issueToken("secret-a", -1), "secret-a")).valid).toBe(false);
+    expect((await readToken(undefined, "secret-a")).valid).toBe(false);
+  });
+});

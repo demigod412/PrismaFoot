@@ -4,7 +4,7 @@ import { predictFixture, type NewsInput } from "../model/predict";
 import { IDENTITY_SET, type Calibrator, type CalibratorSet } from "../model/calibration";
 import { MODEL_VERSION } from "../model/constants";
 import { POOL_SETTINGS } from "../leagues";
-import { fitRates, predictTotal, MIN_RATE_MATCHES, type RateFit, type RateMatch } from "../model/rates";
+import { fitRates, totalLadder, MIN_RATE_MATCHES, type RateFit, type RateMatch } from "../model/rates";
 import { FIXTURE_WINDOW_DAYS } from "../window";
 
 export type NewsLoader = (fx: { id: string; externalId: string; kickoffUtc: Date; homeExt: string; awayExt: string }) =>
@@ -15,7 +15,8 @@ export const LOCK_MINUTES = Number(process.env.PREDICTION_LOCK_MINUTES ?? 15);
 const PREV_SEASON_WEIGHT = 0.85;  // last season still counts, a little less (squads change)
 const PRIOR_WEIGHT = 8;           // pseudo-matches behind a promoted/relegated prior
 const NEWCOMER_MATCHES = 6;       // fewer matches than this in the league ⇒ use a prior
-const CORNERS_LINE = 8.5, SHOTS_LINE = 24.5;
+/** Alternative corner / shot lines offered around each fixture's own main line. */
+const CORNER_OFFSETS = [-3, -2, -1, 0, 1, 2, 3], SHOT_OFFSETS = [-6, -4, -2, 0, 2, 4, 6];
 
 type Hist = Fixture & { homeTeam: Team; awayTeam: Team };
 
@@ -173,13 +174,15 @@ export async function writePrediction(db: PrismaClient, ctx: LeagueContext, fx: 
     calibrators: ctx.cal, calibrationResidual: ctx.residual, neutral: ctx.league.neutral,
     earlySeason: early, priorHome: ctx.priorKeys.has(hk), priorAway: ctx.priorKeys.has(ak), h1Share: ctx.h1Share,
   });
-  const corners = ctx.cornerFit ? predictTotal(ctx.cornerFit, hk, ak, CORNERS_LINE) : null;
-  const shots = ctx.shotFit ? predictTotal(ctx.shotFit, hk, ak, SHOTS_LINE) : null;
+  // Corner / shot lines are chosen per fixture (main line at the 50/50 point) with alternatives either side.
+  const corners = ctx.cornerFit ? totalLadder(ctx.cornerFit, hk, ak, CORNER_OFFSETS) : null;
+  const shots = ctx.shotFit ? totalLadder(ctx.shotFit, hk, ak, SHOT_OFFSETS) : null;
+  const mainOver = (t: { main: number; rows: { line: number; over: number }[] }) => t.rows.find((r) => r.line === t.main)!.over;
   const capLow = (x: number) => (out.band === "LOW" ? Math.min(0.89, Math.max(0.11, x)) : x);
   if (!corners) out.dataFlags.push("no_corner_data");
   if (!shots) out.dataFlags.push("no_shot_data");
   // New revision only when inputs changed, or corners/shots became available
-  if (prev && prev.inputsHash === out.inputsHash && (prev.expCorners != null) === !!corners && (prev.expShots != null) === !!shots && prev.calH1Under15 != null) return false;
+  if (prev && prev.inputsHash === out.inputsHash && (prev.expCorners != null) === !!corners && (prev.expShots != null) === !!shots && (prev.cornerLines != null) === !!corners && prev.calHtDraw != null) return false;
 
   await db.prediction.create({ data: {
     fixtureId: fx.id, modelVersion: out.modelVersion, revision: (prev?.revision ?? 0) + 1, inputsHash: out.inputsHash,
@@ -191,10 +194,12 @@ export async function writePrediction(db: PrismaClient, ctx: LeagueContext, fx: 
     predHomeGoals: out.predHomeGoals, predAwayGoals: out.predAwayGoals,
     topScorelines: out.topScorelines as unknown as Prisma.InputJsonValue, matrix: out.matrix,
     rawHomeBy2: out.rawBy2.home, rawAwayBy2: out.rawBy2.away, calHomeBy2: capLow(out.calBy2.home), calAwayBy2: capLow(out.calBy2.away),
-    calH1Under15: out.halves.h1u15, calH1Under25: out.halves.h1u25, calH2Under25: out.halves.h2u25, h1Share: out.halves.share,
+    calH1Under15: out.halves.h1u15, calH1Under25: out.halves.h1u25, calH2Under25: out.halves.h2u25, h1Share: out.halves.share, calHtDraw: out.halves.htDraw,
     calHomeOrOver25: out.winOrOver.cal.home, calAwayOrOver25: out.winOrOver.cal.away,
-    ...(corners ? { cornersLine: CORNERS_LINE, expCorners: corners.expected, rawCornersOver: corners.over, calCornersOver: capLow(corners.over) } : {}),
-    ...(shots ? { shotsLine: SHOTS_LINE, expShots: shots.expected, rawShotsOver: shots.over, calShotsOver: capLow(shots.over) } : {}),
+    ...(corners ? { cornersLine: corners.main, expCorners: corners.expected, rawCornersOver: mainOver(corners), calCornersOver: capLow(mainOver(corners)),
+      cornerLines: corners.rows.map((r) => ({ l: r.line, o: capLow(r.over) })) as unknown as Prisma.InputJsonValue } : {}),
+    ...(shots ? { shotsLine: shots.main, expShots: shots.expected, rawShotsOver: mainOver(shots), calShotsOver: capLow(mainOver(shots)),
+      shotLines: shots.rows.map((r) => ({ l: r.line, o: capLow(r.over) })) as unknown as Prisma.InputJsonValue } : {}),
     confidence: out.confidence, band: out.band, dataFlags: out.dataFlags,
     rationale: out.rationale, features: out.features as Prisma.InputJsonValue,
   } });

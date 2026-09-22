@@ -40,8 +40,13 @@ export async function syncResults(db: PrismaClient, p: FootballProvider, provide
     where: { provider, status: { in: ["SCHEDULED", "LIVE"] }, kickoffUtc: { lte: new Date(now.getTime() - 105 * 60_000), gte: new Date(now.getTime() - 3 * DAY) } },
     select: { kickoffUtc: true },
   });
-  if (!pending.length) return { checked: 0, updated: 0 };
-  const dates = [...new Set(pending.map((f) => format(f.kickoffUtc, "yyyy-MM-dd")))];
+  // Also re-read the last 12 hours of finished matches once, so a score the provider corrects after full time is picked up.
+  const recent = await db.fixture.findMany({
+    where: { provider, status: "FINISHED", kickoffUtc: { gte: new Date(now.getTime() - 12 * 3600_000), lte: now } },
+    select: { kickoffUtc: true },
+  });
+  if (!pending.length && !recent.length) return { checked: 0, updated: 0 };
+  const dates = [...new Set([...pending, ...recent].map((f) => format(f.kickoffUtc, "yyyy-MM-dd")))].slice(0, 6);
   let updated = 0;
   for (const date of dates) {
     const rs = await p.getResults({ date });

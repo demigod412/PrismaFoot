@@ -1,5 +1,5 @@
 import { LOW_BAND_DISPLAY_CAP, MODEL_VERSION } from "./constants";
-import { marketsFromMatrix, scoreMatrix, topScorelines, truncateMatrix, winByAtLeast, type Markets, type Scoreline, halfUnders, winOrOver } from "./dixonColes";
+import { marketsFromMatrix, scoreMatrix, topScorelines, truncateMatrix, winByAtLeast, type Markets, type Scoreline, halfUnders, halfTimeResult, winOrOver } from "./dixonColes";
 import { priorRating, type LeagueFit, type TeamRating } from "./ratings";
 import { apply, calibrate1x2, IDENTITY_SET, type CalibratorSet } from "./calibration";
 import { confidenceScore, type Band } from "./confidence";
@@ -29,7 +29,7 @@ export interface PredictOutput {
   lambdaHome: number; lambdaAway: number; rho: number;
   raw: Markets; cal: Markets;
   rawBy2: { home: number; away: number }; calBy2: { home: number; away: number };
-  halves: { h1u15: number; h1u25: number; h2u25: number; share: number };
+  halves: { h1u15: number; h1u25: number; h2u25: number; share: number; htDraw: number };
   winOrOver: { raw: { home: number; away: number }; cal: { home: number; away: number } };
   predHomeGoals: number; predAwayGoals: number;
   topScorelines: Scoreline[];
@@ -102,11 +102,11 @@ export function predictFixture(inp: PredictInput): PredictOutput {
     away: Math.min(0.99, cal.away + cal.over25 - joint(cal.away, raw.away, wo.awayAndOver)),
   };
   const share = Math.min(0.55, Math.max(0.35, inp.h1Share ?? 0.45));
-  const halves = { ...halfUnders(m, share), share };
+  const halves = { ...halfUnders(m, share), share, htDraw: halfTimeResult(lambdaHome, lambdaAway, share).draw };
   if (band === "LOW") {
     capLow(cal, flags);
     const c = (x: number) => Math.min(0.89, Math.max(0.11, x));
-    cWo.home = c(cWo.home); cWo.away = c(cWo.away); halves.h1u15 = c(halves.h1u15); halves.h1u25 = c(halves.h1u25); halves.h2u25 = c(halves.h2u25);
+    cWo.home = c(cWo.home); cWo.away = c(cWo.away); halves.h1u15 = c(halves.h1u15); halves.h1u25 = c(halves.h1u25); halves.h2u25 = c(halves.h2u25); halves.htDraw = c(halves.htDraw);
   }
 
   const features = {
