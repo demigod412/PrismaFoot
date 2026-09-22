@@ -5,6 +5,7 @@ const ymd = (d: Date) => format(d, "yyyy-MM-dd");
 import type { FootballProvider, PFixture } from "../providers/types";
 import { PROVIDER_ENUM, THROTTLE_MS } from "../providers";
 import { LEAGUE_ALLOWLIST, POOL_SETTINGS } from "../leagues";
+import { FIXTURE_WINDOW_DAYS } from "../window";
 import { rateAndPredictLeague } from "./predict";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -48,13 +49,13 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
         catch (e) { errors.push(`${l.season - k}: ${(e as Error).message}`); }
         await sleep(THROTTLE_MS[p.id]);
       }
-      // Upcoming games: always ask for the next 14 days explicitly (some plans leave future fixtures out of season lists).
+      // Upcoming games: always ask for the upcoming window explicitly (some plans leave future fixtures out of season lists).
       try {
-        fixtures.push(...(await p.getFixtures({ leagueId: l.externalId, season: l.season, from: ymd(now), to: ymd(addDays(now, 14)) })));
-      } catch (e) { errors.push(`next 14 days: ${(e as Error).message}`); }
+        fixtures.push(...(await p.getFixtures({ leagueId: l.externalId, season: l.season, from: ymd(now), to: ymd(addDays(now, FIXTURE_WINDOW_DAYS)) })));
+      } catch (e) { errors.push(`upcoming window: ${(e as Error).message}`); }
       await sleep(THROTTLE_MS[p.id]);
       const oldest = addDays(now, -(pool?.historyDays ?? opts.historyDays ?? 450)).getTime();
-      const keep = fixtures.filter((f) => f.kickoffUtc.getTime() >= oldest && f.kickoffUtc.getTime() <= addDays(now, 14).getTime());
+      const keep = fixtures.filter((f) => f.kickoffUtc.getTime() >= oldest && f.kickoffUtc.getTime() <= addDays(now, FIXTURE_WINDOW_DAYS).getTime());
       if (!keep.length) { report[l.name] = { fixtures: 0, errors }; continue; } // don't mark synced when nothing came back
       const seen = new Set<string>();
       for (const f of keep) {

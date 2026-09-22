@@ -4,6 +4,7 @@ import { predictFixture, type NewsInput } from "../model/predict";
 import { IDENTITY_SET, type Calibrator, type CalibratorSet } from "../model/calibration";
 import { MODEL_VERSION } from "../model/constants";
 import { POOL_SETTINGS } from "../leagues";
+import { FIXTURE_WINDOW_DAYS } from "../window";
 
 export type NewsLoader = (fx: { id: string; externalId: string; kickoffUtc: Date; homeExt: string; awayExt: string }) =>
   Promise<{ home: NewsInput; away: NewsInput } | null>;
@@ -52,7 +53,7 @@ export async function rateAndPredictLeague(db: PrismaClient, leagueId: string, o
 
   const { set, residual } = await loadCalibrators(db);
   const upcoming = await db.fixture.findMany({
-    where: { leagueId, status: "SCHEDULED", kickoffUtc: { gte: now, lte: new Date(now.getTime() + 14 * DAY) } },
+    where: { leagueId, status: "SCHEDULED", kickoffUtc: { gte: now, lte: new Date(now.getTime() + FIXTURE_WINDOW_DAYS * DAY) } },
     include: { homeTeam: true, awayTeam: true, predictions: { orderBy: { revision: "desc" }, take: 1 } },
   });
 
