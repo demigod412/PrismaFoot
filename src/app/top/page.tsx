@@ -34,6 +34,7 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
     .sort((a, b) => b.t.strength - a.t.strength || a.f.kickoffUtc.getTime() - b.f.kickoffUtc.getTime())
     .slice(0, TOP_N);
 
+  const nextUp = ranked.length ? null : await prisma.fixture.findFirst({ where: { provider, status: "SCHEDULED", kickoffUtc: { gt: now }, ...(focus ? { league: { focusGroup: focus } } : {}) }, orderBy: { kickoffUtc: "asc" }, include: { league: true } });
   // Track record: for each of the last 7 WAT days, re-rank that day's pre-kickoff calls and score the top 20.
   const since = new Date(watDayStart(dayKey(now)).getTime() - 7 * DAY);
   const past = await prisma.fixture.findMany({
@@ -70,7 +71,9 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
 
       {ranked.length === 0 ? (
         <EmptyState title={`No qualifying tips ${days === 1 ? "left today" : "in this window"}`}
-          body={days === 1 ? "Today's remaining matches have no Medium or High confidence tip at 55% or above. Try a longer window." : "No upcoming matches in this window have a qualifying tip yet."}
+          body={nextUp && nextUp.kickoffUtc.getTime() > end.getTime()
+            ? `No matches are scheduled in this window. The next one is ${nextUp.league.name} on ${fmtWat(nextUp.kickoffUtc, "EEE d MMM")} (leagues pause during international breaks); tips appear once it falls inside the window.`
+            : days === 1 ? "Today's remaining matches have no Medium or High confidence tip at 55% or above. Try a longer window." : "No upcoming matches in this window have a qualifying tip yet."}
           action={days < 7 ? { href: href({ days: Math.min(7, days + 1) }), label: `Show ${windowLabel(Math.min(7, days + 1)).toLowerCase()}` } : undefined} />
       ) : (
         <ol className="glass divide-y divide-white/[0.05] px-1 py-1">
