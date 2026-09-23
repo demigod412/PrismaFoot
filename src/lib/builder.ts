@@ -13,12 +13,12 @@ export interface Candidate {
   trust?: number; // ledger-based reliability multiplier (1 = as advertised)
 }
 export interface BuildOptions {
-  target: number; maxLegs?: number; minP?: number; mode?: "value" | "safe";
+  target: number; maxLegs?: number; minLegs?: number; minP?: number; mode?: "value" | "safe";
   maxPerLeague?: number; maxPerGroup?: number; band?: string; overshoot?: number;
 }
 export interface BuiltSlip { legs: Candidate[]; odds: number; p: number; adjusted: number; edge: number; real: boolean; short?: boolean; relaxed?: boolean }
 
-export const DEFAULTS = { maxLegs: 12, minP: 0.5, maxPerLeague: 2, maxPerGroup: 2, overshoot: 1.35 };
+export const DEFAULTS = { maxLegs: 12, minLegs: 1, minP: 0.5, maxPerLeague: 2, maxPerGroup: 2, overshoot: 1.35 };
 /**
  * If nothing lands in the band, try again with a wider band and, after that, with the spread rules relaxed
  * (few leagues on a quiet day can make "max 2 per competition" impossible for a long target).
@@ -78,7 +78,9 @@ function search(all: Candidate[], o: BuildOptions, want: number, widen: number, 
         const logOdds = st.logOdds + Math.log(c.odds);
         if (logOdds > Math.log(ceiling)) continue;                 // never overshoot the target band
         const legs = [...st.legs, c], logP = st.logP + Math.log(c.p);
-        if (logOdds >= Math.log(target)) {
+        // A minimum leg count spreads the same price over more, shorter-priced legs: safer individual picks,
+        // though the combined chance is still set by the price you are aiming at.
+        if (logOdds >= Math.log(target) && legs.length >= (cfg.minLegs ?? 1)) {
           const p = Math.exp(logP), odds = Math.exp(logOdds);
           const real = legs.every((l) => l.real);
           const slip: BuiltSlip = { legs, odds, p, adjusted: adjust(p, legs.length), edge: p * odds - 1, real };
@@ -86,6 +88,7 @@ function search(all: Candidate[], o: BuildOptions, want: number, widen: number, 
           if (!done.has(k) || done.get(k)!.p < p) done.set(k, slip);
           continue;                                                 // target reached: don't extend further
         }
+        if (legs.length >= cfg.maxLegs) continue;
         next.push({ legs, logOdds, logP, matches: new Set([...st.matches, c.matchId]),
           leagues: new Map(st.leagues).set(c.league, (st.leagues.get(c.league) ?? 0) + 1),
           groups: new Map(st.groups).set(c.group, (st.groups.get(c.group) ?? 0) + 1) });

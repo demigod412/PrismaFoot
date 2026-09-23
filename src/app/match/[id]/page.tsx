@@ -82,7 +82,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                 {values.map((v) => (
                   <li key={v.key} className="flex items-center gap-2 py-2">
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm text-slate-100">{v.label}</div>
+                      <div className="truncate text-sm text-slate-100">{v.star ? "★ " : ""}{v.label}</div>
                       <div className="num text-[11px] text-slate-400">model {pct(v.p)} · odds {v.odds.toFixed(2)} · fair {v.fair.toFixed(2)}</div>
                     </div>
                     <span className="num text-sm text-edge">+{Math.round(v.edge * 100)}%</span>

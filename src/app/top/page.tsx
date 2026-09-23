@@ -4,7 +4,7 @@ import { dataMode } from "@/lib/mode";
 import { withLatestPrediction } from "@/lib/queries";
 import { selectTop, tipHit, tipsFor, TOP_N, WINDOWS, CAPS, type Tip } from "@/lib/top";
 import { GROUP_LABEL, marketHit, type MarketGroup, type MarketKey } from "@/lib/markets";
-import { flatStakeRoi, selectTopValue, valueTips, VALUE, type ValueTip } from "@/lib/value";
+import { flatStakeRoi, selectTopValue, valueTips, VALUE, type ValueTip, VALUE_CEILINGS } from "@/lib/value";
 import type { QuoteMap } from "@/lib/odds";
 import { dayKey, fmtUtc, fmtWat, watDayStart } from "@/lib/time";
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
@@ -34,17 +34,19 @@ function quoteMaps(rows: { fixtureId: string; market: string; odds: number; best
   return out;
 }
 
-export default async function Top({ searchParams }: { searchParams: Promise<{ days?: string; focus?: string; market?: string; list?: string }> }) {
+export default async function Top({ searchParams }: { searchParams: Promise<{ days?: string; focus?: string; market?: string; list?: string; cap?: string }> }) {
   const sp = await searchParams;
   const days = WINDOWS.includes(Number(sp.days) as never) ? Number(sp.days) : 1;
   const focus = FOCUS.some(([f]) => f === sp.focus) ? sp.focus : undefined;
   const group = GROUPS.includes(sp.market as MarketGroup) ? (sp.market as MarketGroup) : undefined;
   const list: "likely" | "value" = sp.list === "value" ? "value" : "likely";
-  const href = (o: { days?: number; focus?: string | null; market?: string | null; list?: string }) => {
+  const cap = VALUE_CEILINGS.includes(Number(sp.cap) as never) ? Number(sp.cap) : 2;
+  const href = (o: { days?: number; focus?: string | null; market?: string | null; list?: string; cap?: number }) => {
     const q = new URLSearchParams({ days: String(o.days ?? days) });
     const f = o.focus === null ? undefined : o.focus ?? focus; if (f) q.set("focus", f);
     const m = o.market === null ? undefined : o.market ?? group; if (m) q.set("market", m);
     const l = o.list ?? list; if (l === "value") q.set("list", "value");
+    const c = o.cap ?? cap; if (l === "value" && c !== 2) q.set("cap", String(c));
     return `/top?${q}`;
   };
   const { provider, demo } = await dataMode();
@@ -70,7 +72,7 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
     value = selectTopValue(fixtures.flatMap((f) => {
       const p = f.predictions[0], q = qs.get(f.id);
       if (!p || !q) return [];
-      const tips = valueTips(p, q, ...names(f)).filter((t) => !group || t.group === group);
+      const tips = valueTips(p, q, ...names(f), { maxOdds: cap }).filter((t) => !group || t.group === group);
       return [{ item: f, id: f.id, startMs: f.kickoffUtc.getTime(), tips }];
     })).map(({ item, tip }) => ({ f: item, t: tip }));
   }
@@ -98,7 +100,7 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
         .map(({ item, tip }) => ({ tip, hit: tipHit(tip.key, item.homeGoals!, item.awayGoals!, res(item), lines(item)) })).filter((x) => x.hit != null);
       return { day, n: scored.length, hits: scored.filter((x) => x.hit).length, avgP: scored.reduce((s, x) => s + x.tip.p, 0) / (scored.length || 1) };
     }
-    const picks = selectTopValue(fs.flatMap((f) => { const q = pastQuotes.get(f.id); return q ? [{ item: f, id: f.id, startMs: f.kickoffUtc.getTime(), tips: valueTips(f.predictions[0], q, f.homeTeam.name, f.awayTeam.name).filter((t) => !group || t.group === group) }] : []; }))
+    const picks = selectTopValue(fs.flatMap((f) => { const q = pastQuotes.get(f.id); return q ? [{ item: f, id: f.id, startMs: f.kickoffUtc.getTime(), tips: valueTips(f.predictions[0], q, f.homeTeam.name, f.awayTeam.name, { maxOdds: cap }).filter((t) => !group || t.group === group) }] : []; }))
       .map(({ item, tip }) => ({ tip, hit: marketHit(tip.key, res(item), lines(item)) })).filter((x) => x.hit != null);
     const roi = flatStakeRoi(picks.map((x) => ({ odds: x.tip.odds, hit: !!x.hit })));
     return { day, n: roi.n, hits: roi.hits, avgP: picks.reduce((s, x) => s + x.tip.p, 0) / (picks.length || 1), profit: roi.profit };
@@ -131,7 +133,7 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
         <p className="mt-1 max-w-2xl text-sm text-slate-400">
           {list === "likely"
             ? <>The strongest single tip from each match, ranked by model probability with a small boost for confidence. Medium or High confidence only. In the mixed list at most {CAPS.dc} double chance, {CAPS.under45} Under 4.5 and {CAPS.hcp} win-by-2 tips appear. A 75% tip still loses one time in four.</>
-            : <>Tips where the model rates the outcome more likely than the bookmaker&apos;s price implies. Edge = model probability × odds − 1. Needs odds ≥ {VALUE.minOdds.toFixed(2)}, probability ≥ {Math.round(VALUE.minP * 100)}% and edge ≥ {Math.round(VALUE.minEdge * 100)}%. Value tips lose more often than &ldquo;most likely&rdquo; tips; the point is the price.</>}
+            : <>Tips where the model rates the outcome more likely than the bookmaker&apos;s price implies. Edge = model probability × odds − 1. Needs odds ≥ {VALUE.minOdds.toFixed(2)}, probability ≥ {Math.round(VALUE.minP * 100)}% and edge ≥ {Math.round(VALUE.minEdge * 100)}%. Value tips lose more often than &ldquo;most likely&rdquo; tips; the point is the price. ★ marks standout value: High confidence, 50%+, and an edge of 8% or more.</>}
         </p>
       </header>
 
@@ -140,6 +142,12 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
           <Link key={l} href={href({ list: l })} className={cn("rounded-lg px-3 py-1.5 text-sm", list === l ? "bg-edge text-ink-950" : "text-slate-300")}>{l === "likely" ? "Most likely" : "Best value"}</Link>
         ))}
       </div>
+      {list === "value" && (
+        <div data-no-ptr className="mb-3 flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] uppercase tracking-wide text-slate-500">Max odds</span>
+          {VALUE_CEILINGS.map((c) => <Link key={c} href={href({ cap: c })}><Chip active={cap === c}>{c === 6 ? "any" : `≤ ${c.toFixed(2)}`}</Chip></Link>)}
+        </div>
+      )}
       <nav data-no-ptr aria-label="Time window" className="-mx-4 mb-3 flex gap-1.5 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0">
         {WINDOWS.map((d) => <Link key={d} href={href({ days: d })}><Chip active={d === days}>{windowLabel(d)}</Chip></Link>)}
       </nav>
@@ -167,7 +175,7 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
                 <AddToSlip fixtureId={f.id} market={t.key} className="mr-3" /></li>
             ))
             : value.map(({ f, t }, i) => (
-              <li key={f.id} className="flex items-center"><div className="min-w-0 flex-1"><Row f={f} i={i} label={t.label} groupName={GROUP_LABEL[t.group]} p={t.p}
+              <li key={f.id} className="flex items-center"><div className="min-w-0 flex-1"><Row f={f} i={i} label={`${t.star ? "★ " : ""}${t.label}`} groupName={GROUP_LABEL[t.group]} p={t.p}
                 right={<><span className="num text-xs text-edge">edge +{Math.round(t.edge * 100)}%</span><span className="num text-[10px] text-slate-500">odds {t.odds.toFixed(2)} · fair {t.fair.toFixed(2)}</span></>} /></div>
                 <AddToSlip fixtureId={f.id} market={t.key} className="mr-3" /></li>
             ))}

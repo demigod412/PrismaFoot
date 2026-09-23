@@ -18,14 +18,15 @@ const DAY = 86_400_000;
 const TARGETS = [3, 5, 10, 30, 100];
 const WINDOWS: [number, string][] = [[1, "Today"], [2, "Next 2 days"], [3, "Next 3 days"], [7, "This week"], [14, "Next 14 days"]];
 
-export default async function Builder({ searchParams }: { searchParams: Promise<{ target?: string; days?: string; mode?: string; legs?: string }> }) {
+export default async function Builder({ searchParams }: { searchParams: Promise<{ target?: string; days?: string; mode?: string; legs?: string; min?: string }> }) {
   const sp = await searchParams;
   const target = Math.min(1000, Math.max(1.2, Number(sp.target) || 5));
   const days = WINDOWS.some(([d]) => d === Number(sp.days)) ? Number(sp.days) : 2;
   const mode: "value" | "safe" = sp.mode === "safe" ? "safe" : "value";
   const maxLegs = Math.min(15, Math.max(2, Number(sp.legs) || 12));
-  const href = (o: Partial<{ target: number; days: number; mode: string; legs: number }>) =>
-    `/builder?target=${o.target ?? target}&days=${o.days ?? days}&mode=${o.mode ?? mode}&legs=${o.legs ?? maxLegs}`;
+  const minLegs = Math.min(maxLegs, Math.max(1, Number(sp.min) || 1));
+  const href = (o: Partial<{ target: number; days: number; mode: string; legs: number; min: number }>) =>
+    `/builder?target=${o.target ?? target}&days=${o.days ?? days}&mode=${o.mode ?? mode}&legs=${o.legs ?? maxLegs}&min=${o.min ?? minLegs}`;
 
   const now = new Date();
   const fixtures = await getBoard({ from: now, to: new Date(now.getTime() + Math.min(days, FIXTURE_WINDOW_DAYS) * DAY) });
@@ -47,7 +48,7 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
     });
   });
   const withOdds = candidates.some((c) => c.real);
-  const slips = buildSlips(candidates, { target, maxLegs, mode: withOdds ? mode : "safe", band: "LOW" }, 3);
+  const slips = buildSlips(candidates, { target, maxLegs, minLegs, mode: withOdds ? mode : "safe", band: "LOW" }, 3);
   const hint = legHint(target);
 
   // Track record: build the same target from locked calls on each of the last 14 days and score it.
@@ -64,7 +65,7 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
       return allMarkets(x, H, A).map((m) => ({ matchId: x.fixtureId, league: x.fixture.league.name, startMs: +x.fixture.kickoffUtc, match: `${H} v ${A}`,
         label: m.label, market: m.key, group: m.group, p: m.p, odds: 1 / m.p, real: false, band: x.band }));
     });
-    const [built] = buildSlips(cands, { target, maxLegs, mode: "safe", band: "LOW" }, 1);
+    const [built] = buildSlips(cands, { target, maxLegs, minLegs, mode: "safe", band: "LOW" }, 1);
     if (!built) return [];
     const res = (id: string) => { const f = ps.find((x) => x.fixtureId === id)!.fixture, r = f.results[0];
       return { h: r.homeGoals, a: r.awayGoals, hc: f.homeCorners, ac: f.awayCorners, hs: f.homeShots, as: f.awayShots, hh: r.htHome, ha: r.htAway }; };
@@ -81,6 +82,8 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
         <p className="mt-1 max-w-2xl text-sm text-slate-400">
           Pick a target price and a window; the builder assembles the combination that reaches it with the best chance —
           one leg per match, at most 2 per competition and 2 of the same market type.
+          Setting a minimum number of legs spreads the same price over more, shorter-priced picks — each leg safer,
+          though the combined chance still follows the price you aim at.
           {withOdds ? " Bookmaker prices are used where they exist, so value legs are preferred." : " No bookmaker prices are stored, so the model's fair odds are used: the target itself sets the chance."}
         </p>
       </header>
@@ -100,6 +103,8 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
         </form>
         <FilterSelect label="Window" value={String(days)} options={WINDOWS.map(([d, l]) => ({ value: String(d), label: l, href: href({ days: d }) }))} />
         <FilterSelect label="Max legs" value={String(maxLegs)} options={[4, 6, 8, 10, 12, 15].map((n) => ({ value: String(n), label: `${n} legs`, href: href({ legs: n }) }))} />
+        <FilterSelect label="Min legs" value={String(minLegs)}
+          options={[1, 3, 4, 5, 6, 8].map((n) => ({ value: String(n), label: n === 1 ? "no minimum" : `at least ${n}`, href: href({ min: n }) }))} />
       </div>
       {withOdds && (
         <div data-no-ptr className="mb-5 inline-flex rounded-xl border hairline p-1">
@@ -113,7 +118,7 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
 
       {slips.length === 0 ? (
         <EmptyState title="No combination reaches that target"
-          body={`Nothing in this window adds up to ${target.toFixed(2)} within the leg limit. Try a longer window, a lower target or more legs.`}
+          body={`Nothing in this window adds up to ${target.toFixed(2)} within the leg limits${minLegs > 1 ? ` (at least ${minLegs} legs)` : ""}. Try a longer window, a lower target, or a smaller minimum.`}
           action={{ href: href({ days: Math.min(14, days * 2) }), label: "Widen the window" }} />
       ) : (
         <div className="space-y-4">

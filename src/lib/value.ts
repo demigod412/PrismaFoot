@@ -9,15 +9,19 @@ import type { QuoteMap } from "./odds";
  * Edges are only as good as the model's calibration — they are estimates, not guarantees.
  */
 export const VALUE = { minP: 0.35, minOdds: 1.4, maxOdds: 6, minEdge: 0.03, topN: 20 };
-export interface ValueTip extends MarketTip { odds: number; best: number; books: number; edge: number; fair: number }
+/** Odds ceilings offered on the value list. Shorter prices mean safer legs and a steadier record. */
+export const VALUE_CEILINGS = [2, 3, 6] as const;
+/** ★ marks standout value: a High-confidence call with a clear edge, not just a qualifying one. */
+export const isStarred = (t: { edge: number; band: string; p: number }) => t.band === "HIGH" && t.edge >= 0.08 && t.p >= 0.5;
+export interface ValueTip extends MarketTip { odds: number; best: number; books: number; edge: number; fair: number; star?: boolean }
 
-export function valueTips(p: Prediction, quotes: QuoteMap, home: string, away: string): ValueTip[] {
+export function valueTips(p: Prediction, quotes: QuoteMap, home: string, away: string, opts: { maxOdds?: number } = {}): ValueTip[] {
   if (p.band === "LOW") return [];
   return allMarkets(p, home, away).flatMap((m) => {
     const q = quotes[m.key];
-    if (!q || m.p < VALUE.minP || q.odds < VALUE.minOdds || q.odds > VALUE.maxOdds) return [];
+    if (!q || m.p < VALUE.minP || q.odds < VALUE.minOdds || q.odds > (opts.maxOdds ?? VALUE.maxOdds)) return [];
     const edge = m.p * q.odds - 1;
-    return edge >= VALUE.minEdge ? [{ ...m, odds: q.odds, best: q.best, books: q.books, edge, fair: 1 / m.p }] : [];
+    return edge >= VALUE.minEdge ? [{ ...m, odds: q.odds, best: q.best, books: q.books, edge, fair: 1 / m.p, star: isStarred({ edge, band: p.band, p: m.p }) }] : [];
   }).sort((a, b) => b.edge - a.edge);
 }
 

@@ -277,3 +277,24 @@ describe("accumulator builder", () => {
     expect(oneInN(0.1)).toBe(10);
   });
 });
+
+describe("builder: minimum legs and value ceilings", () => {
+  const cand = (i: number, p: number) => ({ matchId: `m${i}`, league: `L${i % 6}`, startMs: i, match: `A${i} v B${i}`, label: `pick ${i}`,
+    market: "home", group: ["win", "goals", "btts", "halves", "combo"][i % 5], p, odds: 1 / p, real: false, band: "MEDIUM" });
+  const pool = Array.from({ length: 60 }, (_, i) => cand(i, 0.6 + (i % 6) * 0.05));
+  it("honours a minimum leg count by using shorter-priced legs", () => {
+    const [few] = buildSlips(pool, { target: 3 });
+    const [many] = buildSlips(pool, { target: 3, minLegs: 5, maxPerLeague: 3, maxPerGroup: 3 });
+    expect(many.legs.length).toBeGreaterThanOrEqual(5);
+    expect(many.legs.length).toBeGreaterThan(few.legs.length);
+    expect(Math.min(...many.legs.map((l) => l.p))).toBeGreaterThanOrEqual(0.55); // each leg individually safer
+    expect(many.odds).toBeGreaterThanOrEqual(3);
+  });
+  it("the value list can be capped at shorter odds, and stars mark standout value", async () => {
+    const { isStarred, VALUE_CEILINGS } = await import("@/lib/value");
+    expect(VALUE_CEILINGS).toContain(2);
+    expect(isStarred({ edge: 0.1, band: "HIGH", p: 0.6 })).toBe(true);
+    expect(isStarred({ edge: 0.1, band: "MEDIUM", p: 0.6 })).toBe(false);  // confidence matters
+    expect(isStarred({ edge: 0.04, band: "HIGH", p: 0.6 })).toBe(false);   // a small edge is not standout
+  });
+});
