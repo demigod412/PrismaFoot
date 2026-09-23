@@ -233,3 +233,47 @@ describe("provider rate limits", () => {
     expect(waits.some((w) => w >= 21_000)).toBe(true); // honoured Retry-After, not a 1-second retry
   });
 });
+
+import { buildSlips, adjust, oneInN } from "@/lib/builder";
+describe("accumulator builder", () => {
+  const cand = (i: number, p: number, extra: Partial<Parameters<typeof buildSlips>[0][number]> = {}) => ({
+    matchId: `m${i}`, league: extra.league ?? `L${i % 4}`, startMs: i, match: `A${i} v B${i}`, label: `pick ${i}`,
+    market: extra.market ?? "home", group: extra.group ?? (i % 3 === 0 ? "win" : i % 3 === 1 ? "goals" : "btts"),
+    p, odds: extra.odds ?? 1 / p, real: extra.real ?? false, band: "MEDIUM", ...extra,
+  });
+  const pool = Array.from({ length: 40 }, (_, i) => cand(i, 0.55 + (i % 7) * 0.05));
+
+  it("hits the target band with the best probability, one leg per match", () => {
+    const [best] = buildSlips(pool, { target: 5 });
+    expect(best.odds).toBeGreaterThanOrEqual(5);
+    expect(best.odds).toBeLessThanOrEqual(5 * 1.35);
+    expect(new Set(best.legs.map((l) => l.matchId)).size).toBe(best.legs.length);
+    expect(best.p).toBeCloseTo(best.legs.reduce((s, l) => s * l.p, 1), 10);
+    expect(Math.abs(best.p - 1 / best.odds)).toBeLessThan(0.02); // fair odds: the target sets the chance
+  });
+  it("respects the spread rules and the leg cap", () => {
+    const [best] = buildSlips(pool, { target: 30, maxPerLeague: 2, maxPerGroup: 2, maxLegs: 10 });
+    for (const l of best.legs) {
+      expect(best.legs.filter((x) => x.league === l.league).length).toBeLessThanOrEqual(2);
+      expect(best.legs.filter((x) => x.group === l.group).length).toBeLessThanOrEqual(2);
+    }
+    expect(best.legs.length).toBeLessThanOrEqual(10);
+  });
+  it("prefers priced-up legs in value mode", () => {
+    const priced = [...pool, ...Array.from({ length: 6 }, (_, i) => cand(100 + i, 0.6, { odds: 2.2, real: true, league: `V${i}`, market: `v${i}` }))];
+    const [best] = buildSlips(priced, { target: 5, mode: "value" });
+    expect(best.legs.some((l) => l.real)).toBe(true);
+    expect(best.edge).toBeGreaterThan(0);
+  });
+  it("offers different alternatives and gives up when nothing qualifies", () => {
+    const slips = buildSlips(pool, { target: 10 }, 3);
+    expect(slips.length).toBeGreaterThan(1);
+    expect(slips[0].legs.map((l) => l.matchId).join()).not.toBe(slips[1].legs.map((l) => l.matchId).join());
+    expect(buildSlips(pool.map((c) => ({ ...c, p: 0.2 })), { target: 5, minP: 0.5 })).toEqual([]);
+  });
+  it("haircut and 1-in-N wording", () => {
+    expect(adjust(0.5, 1)).toBe(0.5);
+    expect(adjust(0.5, 5)).toBeLessThan(0.5);
+    expect(oneInN(0.1)).toBe(10);
+  });
+});

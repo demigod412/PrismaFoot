@@ -52,6 +52,18 @@ export async function addToSlip(fixtureId: string, market: MarketKey): Promise<S
   } catch (e) { return { ok: false, message: (e as Error).message }; }
 }
 
+/** Builder: put a whole generated combination into a fresh slip. */
+export async function addManyToSlip(legs: { fixtureId: string; market: MarketKey }[], name?: string): Promise<SlipResult> {
+  try {
+    const owner = await device(), n = await prisma.slip.count({ where: { ownerKey: owner } });
+    const slip = await prisma.slip.create({ data: { ownerKey: owner, name: name ?? `Slip ${n + 1}`, legs: [] } });
+    (await cookies()).set("pe_slip", slip.id, { sameSite: "lax", path: "/", maxAge: 31536000 });
+    let added = 0;
+    for (const l of legs) { const r = await addToSlip(l.fixtureId, l.market); if (r.ok) added++; }
+    return done(`${added} leg${added === 1 ? "" : "s"} added to ${slip.name}`, added > 0);
+  } catch (e) { return { ok: false, message: (e as Error).message }; }
+}
+
 export async function newSlip(): Promise<SlipResult> {
   const owner = await device(), n = await prisma.slip.count({ where: { ownerKey: owner } });
   const s = await prisma.slip.create({ data: { ownerKey: owner, name: `Slip ${n + 1}`, legs: [] } });

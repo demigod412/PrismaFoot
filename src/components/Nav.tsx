@@ -1,12 +1,13 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, LayoutGrid, Radar, Ticket, Menu, LineChart, BookOpen, Settings, Trophy } from "lucide-react";
+import { CalendarDays, LayoutGrid, Radar, Ticket, Menu, LineChart, BookOpen, Settings, Trophy, Calculator } from "lucide-react";
 import { cn } from "./ui";
 
 const TABS = [
   { href: "/", label: "Today", icon: CalendarDays, match: (p: string) => p === "/" || p.startsWith("/fixtures") || p.startsWith("/match") },
   { href: "/top", label: "Top 20", icon: Trophy, match: (p: string) => p.startsWith("/top") },
+  { href: "/builder", label: "Builder", icon: Calculator, match: (p: string) => p.startsWith("/builder") },
   { href: "/scanner", label: "Scanners", icon: Radar, match: (p: string) => p.startsWith("/scanner") },
   { href: "/slips", label: "Slips", icon: Ticket, match: (p: string) => p.startsWith("/slips") },
   { href: "/more", label: "More", icon: Menu, match: (p: string) => ["/more", "/accuracy", "/methodology", "/settings", "/league"].some((x) => p.startsWith(x)) },
@@ -52,6 +53,7 @@ export function LeftRail({ leagues }: { leagues: { id: string; name: string; cou
         {item("/top", "Top 20 tips", Trophy, path.startsWith("/top"))}
         {item("/fixtures", "Fixtures", CalendarDays, path.startsWith("/fixtures"))}
         {item("/leagues", "Leagues", LayoutGrid, path.startsWith("/leagues"))}
+        {item("/builder", "Odds builder", Calculator, path.startsWith("/builder"))}
         {item("/scanner", "Scanners", Radar, path.startsWith("/scanner"))}
         {item("/slips", "Slips", Ticket, path.startsWith("/slips"))}
         {item("/accuracy", "Accuracy", LineChart, path.startsWith("/accuracy"))}

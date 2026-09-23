@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0 — Odds builder
+- New **Builder** page: pick a target price (3, 5, 10, 30, 100 or your own) and a window (today, 2 days, 3 days, this week, 14 days) and get the combination that reaches it with the best chance, plus two alternatives.
+- Legs come from every market, alternative lines and specials included. One leg per match, at most 2 per competition and 2 of the same market type; the spread rules relax only if the target is otherwise unreachable.
+- Bookmaker prices are used where stored (value legs preferred, **Best value / Safest** switch); otherwise the model's fair odds, and the page says plainly that the target then sets the chance.
+- Each combination shows its price, honest chance ("about 1 in 12", with a small haircut because legs aren't independent) and has **Save as slip**, **Copy** and **Sportybet code**.
+- **Track record**: the same target rebuilt from locked calls on each of the last 14 days, with how many would have won.
+
 ## 0.7.2
 - Fix: football-data.org "429" errors during a sync (its free tier allows 10 requests per minute, and the extra league pushed past it). A rate-limited request now waits for the provider's own window — `Retry-After`, or a full minute — instead of retrying after one second, and requests are spaced 7.2s apart. Seasons that were skipped with a 429 load on the next sync.
 

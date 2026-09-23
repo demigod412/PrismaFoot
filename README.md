@@ -53,6 +53,10 @@ scripts/backtest-synthetic.ts     walk-forward Brier/log loss vs baselines on si
 | — | Top 20 (most likely / best value), cross-league club ratings, promoted-team priors | done (0.5.0) |
 | 6 | xG ratings, 1X2 blend, Ask page | not started |
 
+## Odds builder
+
+`/builder` — choose a target price and a window; the app assembles the best combination, with two alternatives, a 14-day track record at that target, and Save as slip / Copy / Sportybet code. Legs: one per match, ≤ 2 per competition, ≤ 2 per market type. With no bookmaker odds the fair odds are used, so the target sets the chance (3.0 ≈ 1 in 3, 100 ≈ 1 in 100).
+
 ## Operations (Lightsail)
 
 App folder `/var/www/pitchedge` · repo `~/PrismaFoot` · site `https://pitch.<your-domain>`
