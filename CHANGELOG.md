@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.10.1 — even leg prices in the Odds builder
+- **Legs are now kept to a similar price.** A target of 3.00 with a minimum of 6 legs gives legs of
+  about 3^(1/6) = **1.20 each**, instead of a 1.60 propped up by a 1.03 and four other near-certainties.
+  On a test pool: seven legs all at 1.18 reaching 3.12, against the old search's mix of
+  1.05, 1.05, 1.11, 1.11, 1.11, 1.18, 1.18, 1.43 reaching 3.01.
+- **Evenness is measured on each leg's share of the price, not on the odds**, which matters more than it
+  sounds. At a 1.20 ideal, a "within 25%" band on the odds runs from 0.96 to 1.50 and lets a 1.03 leg
+  straight through — yet 1.03 carries 0.03 of the total price where an equal share is 0.18. Working in
+  log odds makes "an equal share" the thing actually bounded, and excludes it.
+- **New "Leg prices" control: Even (default) or Any mix.** Even is the default because six similar
+  prices is what a six-fold is usually meant to be; Any mix restores the previous behaviour, which is
+  still useful for reaching an awkward target on a quiet day.
+- The band widens through the existing attempt ladder, so an even slip is preferred but never at the
+  cost of failing to reach the target at all.
+- Each combination now shows **legs average** and, where they differ, the **range**, so the mix is
+  visible rather than something to be inferred by reading down the list.
+- Note a minimum of 6 legs can still produce 7: if the available prices around 1.20 do not multiply to
+  the target in exactly six, one more leg is how it gets there.
+
 ## 0.10.0 — Upcoming / Live / Finished on the fixtures board
 - **Three tabs on the board**, with a count on each: **Upcoming** (not kicked off — the default, since
   the board's job is the matches you can still bet on), **Live** (being played now, with a pulsing dot)

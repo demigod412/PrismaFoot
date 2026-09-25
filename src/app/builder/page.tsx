@@ -19,15 +19,18 @@ const DAY = 86_400_000;
 const TARGETS = [3, 5, 10, 30, 100];
 const WINDOWS: [number, string][] = [[1, "Today"], [2, "Next 2 days"], [3, "Next 3 days"], [7, "This week"], [14, "Next 14 days"]];
 
-export default async function Builder({ searchParams }: { searchParams: Promise<{ target?: string; days?: string; mode?: string; legs?: string; min?: string }> }) {
+export default async function Builder({ searchParams }: { searchParams: Promise<{ target?: string; days?: string; mode?: string; legs?: string; min?: string; even?: string }> }) {
   const sp = await searchParams;
   const target = Math.min(1000, Math.max(1.2, Number(sp.target) || 5));
   const days = WINDOWS.some(([d]) => d === Number(sp.days)) ? Number(sp.days) : 2;
   const mode: "value" | "safe" = sp.mode === "safe" ? "safe" : "value";
   const maxLegs = Math.min(15, Math.max(2, Number(sp.legs) || 12));
   const minLegs = Math.min(maxLegs, Math.max(1, Number(sp.min) || 1));
-  const href = (o: Partial<{ target: number; days: number; mode: string; legs: number; min: number }>) =>
-    `/builder?target=${o.target ?? target}&days=${o.days ?? days}&mode=${o.mode ?? mode}&legs=${o.legs ?? maxLegs}&min=${o.min ?? minLegs}`;
+  // Even legs by default: an accumulator of six similar prices is what people mean by a six-fold,
+  // not one 1.60 propped up by five near-certainties. "even=0" opts out.
+  const evenLegs = sp.even !== "0";
+  const href = (o: Partial<{ target: number; days: number; mode: string; legs: number; min: number; even: boolean }>) =>
+    `/builder?target=${o.target ?? target}&days=${o.days ?? days}&mode=${o.mode ?? mode}&legs=${o.legs ?? maxLegs}&min=${o.min ?? minLegs}&even=${(o.even ?? evenLegs) ? 1 : 0}`;
 
   // The cap applies when the user has actually chosen Safest. With no bookmaker odds the toggle is
   // hidden and the search runs in safe mode anyway; capping there would silently change that view.
@@ -53,7 +56,7 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
     });
   });
   const withOdds = candidates.some((c) => c.real);
-  const slips = buildSlips(candidates, { target, maxLegs, minLegs, mode: withOdds ? mode : "safe", band: "LOW", maxLegOdds: legCap }, 3);
+  const slips = buildSlips(candidates, { target, maxLegs, minLegs, mode: withOdds ? mode : "safe", band: "LOW", maxLegOdds: legCap, evenLegs }, 3);
   const hint = legHint(target);
 
   // Track record: build the same target from locked calls on each of the last 14 days and score it.
@@ -70,7 +73,7 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
       return allMarkets(x, H, A).map((m) => ({ matchId: x.fixtureId, league: x.fixture.league.name, startMs: +x.fixture.kickoffUtc, match: `${H} v ${A}`,
         label: m.label, market: m.key, group: m.group, p: m.p, odds: 1 / m.p, real: false, band: x.band }));
     });
-    const [built] = buildSlips(cands, { target, maxLegs, minLegs, mode: "safe", band: "LOW", maxLegOdds: legCap }, 1);
+    const [built] = buildSlips(cands, { target, maxLegs, minLegs, mode: "safe", band: "LOW", maxLegOdds: legCap, evenLegs }, 1);
     if (!built) return [];
     const res = (id: string) => { const f = ps.find((x) => x.fixtureId === id)!.fixture, r = f.results[0];
       return { h: r.homeGoals, a: r.awayGoals, hc: f.homeCorners, ac: f.awayCorners, hs: f.homeShots, as: f.awayShots, hh: r.htHome, ha: r.htAway }; };
@@ -91,6 +94,9 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
           though the combined chance still follows the price you aim at.
           {withOdds ? " Bookmaker prices are used where they exist, so value legs are preferred." : " No bookmaker prices are stored, so the model's fair odds are used: the target itself sets the chance."}
           {legCap ? ` Safest never uses a leg priced above ${legCap.toFixed(2)}, so the target is reached with more, shorter picks.` : ""}
+          {evenLegs
+            ? ` Even legs is on: legs are kept to a similar price — ${target.toFixed(2)} over ${Math.max(2, minLegs > 1 ? minLegs : legHint(target).min)} legs means about ${Math.pow(target, 1 / Math.max(2, minLegs > 1 ? minLegs : legHint(target).min)).toFixed(2)} each, rather than one long leg carried by near-certainties.`
+            : " Even legs is off: legs may be any mix of prices that reaches the target."}
         </p>
       </header>
 
@@ -111,6 +117,8 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
         <FilterSelect label="Max legs" value={String(maxLegs)} options={[4, 6, 8, 10, 12, 15].map((n) => ({ value: String(n), label: `${n} legs`, href: href({ legs: n }) }))} />
         <FilterSelect label="Min legs" value={String(minLegs)}
           options={[1, 3, 4, 5, 6, 8].map((n) => ({ value: String(n), label: n === 1 ? "no minimum" : `at least ${n}`, href: href({ min: n }) }))} />
+        <FilterSelect label="Leg prices" value={evenLegs ? "even" : "mixed"}
+          options={[{ value: "even", label: "Even", href: href({ even: true }) }, { value: "mixed", label: "Any mix", href: href({ even: false }) }]} />
       </div>
       {withOdds && (
         <div data-no-ptr className="mb-5 inline-flex rounded-xl border hairline p-1">

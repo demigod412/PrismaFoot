@@ -380,3 +380,65 @@ describe("provider request counting", () => {
     expect(providerCalls.get()).toBe(2);
   });
 });
+
+import { legEvenness } from "@/lib/builder";
+describe("builder: even legs", () => {
+  // A pool spanning roughly 1.05 to 3.30, so the search has both near-certainties and long legs
+  // available and has to choose.
+  const cand = (i: number, p: number) => ({
+    matchId: `m${i}`, league: `L${i % 10}`, startMs: i, match: `A${i} v B${i}`, label: `pick ${i}`,
+    market: "home", group: ["win", "goals", "btts", "halves", "combo"][i % 5],
+    p, odds: 1 / p, real: false, band: "MEDIUM",
+  });
+  // p from 0.30 to 0.95 => odds from 3.33 down to 1.05
+  const pool = Array.from({ length: 120 }, (_, i) => cand(i, 0.3 + (i % 14) * 0.05));
+
+  it("six legs for a target of 3 come out near 1.20 each, not 1.60 beside 1.03", () => {
+    const [even] = buildSlips(pool, { target: 3, minLegs: 6, maxLegs: 8, minP: 0.3, evenLegs: true, maxPerLeague: 3, maxPerGroup: 3 });
+    expect(even).toBeTruthy();
+    expect(even.legs.length).toBeGreaterThanOrEqual(6);
+    const ideal = Math.pow(3, 1 / even.legs.length);
+    for (const l of even.legs) {
+      // Every leg within a quarter of the ideal share of the price.
+      expect(l.odds, `leg at ${l.odds.toFixed(2)} is nowhere near ${ideal.toFixed(2)}`).toBeGreaterThan(ideal * 0.75);
+      expect(l.odds).toBeLessThan(ideal * 1.45);
+    }
+    // No near-certainty padding, which is the actual complaint.
+    expect(Math.min(...even.legs.map((l) => l.odds))).toBeGreaterThan(1.1);
+  });
+
+  it("is measurably more even than the same search without it", () => {
+    const opts = { target: 3, minLegs: 6, maxLegs: 8, minP: 0.3, maxPerLeague: 3, maxPerGroup: 3 };
+    const [even] = buildSlips(pool, { ...opts, evenLegs: true });
+    const [mixed] = buildSlips(pool, { ...opts, evenLegs: false });
+    expect(even).toBeTruthy();
+    expect(mixed).toBeTruthy();
+    expect(even.spread).toBeLessThan(mixed.spread);
+    expect(even.spread).toBeLessThan(1.6); // longest leg under 1.6x the shortest
+  });
+
+  it("still reaches the target", () => {
+    for (const target of [2, 3, 5, 10]) {
+      const [s] = buildSlips(pool, { target, minLegs: 4, maxLegs: 12, minP: 0.3, evenLegs: true, maxPerLeague: 3, maxPerGroup: 3 });
+      expect(s, `no slip for target ${target}`).toBeTruthy();
+      expect(s.odds).toBeGreaterThanOrEqual(target);
+    }
+  });
+
+  it("relaxes rather than giving up when an even slip is impossible", () => {
+    // Only two prices exist, so a perfectly even 5-leg slip cannot reach 10.
+    const lumpy = Array.from({ length: 40 }, (_, i) => ({ ...cand(i, i % 2 ? 0.9 : 0.4), odds: i % 2 ? 1.11 : 2.5 }));
+    const [s] = buildSlips(lumpy, { target: 10, minLegs: 5, maxLegs: 10, minP: 0.3, evenLegs: true, maxPerLeague: 5, maxPerGroup: 5 });
+    expect(s).toBeTruthy();
+    expect(s.odds).toBeGreaterThanOrEqual(10);
+  });
+
+  it("measures evenness on each leg's share of the price, not on the odds", () => {
+    // Six equal legs reaching 3.00 is perfectly even.
+    const equal = Array.from({ length: 6 }, () => Math.pow(3, 1 / 6));
+    expect(legEvenness(equal, 3)).toBeCloseTo(1, 5);
+    // A 1.03 leg carries almost none of the price: badly uneven, even though 1.03 and 1.20 look
+    // close as plain numbers. A naive +/-25% band on the odds would have allowed it.
+    expect(legEvenness([1.6, 1.03, 1.2, 1.2, 1.2, 1.25], 3)).toBeGreaterThan(5);
+  });
+});

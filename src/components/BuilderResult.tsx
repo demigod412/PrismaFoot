@@ -15,6 +15,10 @@ export function BuilderResult({ slip, index, target }: { slip: BuilderSlip; inde
   const [booking, setBooking] = useState<BookResult | null>(null);
   const [pending, start] = useTransition();
   const oneIn = Math.round(1 / slip.adjusted);
+  // Leg prices at a glance: the point of "even legs" is that these three numbers sit close together.
+  const prices = slip.legs.map((l) => l.odds);
+  const lo = Math.min(...prices), hi = Math.max(...prices);
+  const avg = Math.exp(prices.reduce((t, o) => t + Math.log(o), 0) / prices.length); // geometric: prices multiply
   const text = [`${slip.legs.length} legs · odds ${slip.odds.toFixed(2)} · model chance ${(slip.adjusted * 100).toFixed(1)}%`,
     ...slip.legs.map((l, i) => `${i + 1}. ${l.match} (${l.when}): ${l.label} — ${(l.p * 100).toFixed(0)}%${l.real ? ` @${l.odds.toFixed(2)}` : ""}`),
     "PitchEdge estimates, not guarantees. 18+"].join("\n");
@@ -26,6 +30,12 @@ export function BuilderResult({ slip, index, target }: { slip: BuilderSlip; inde
         <div className="num text-right text-sm">
           <span className="text-edge">{slip.odds.toFixed(2)}</span> <span className="text-slate-500">odds</span>
           <span className="ml-3 text-slate-300">{pct(slip.adjusted)}</span> <span className="text-slate-500">chance · about 1 in {oneIn}</span>
+          {slip.legs.length > 1 && (
+            <div className="text-[11px] text-slate-500">
+              legs average <span className="text-slate-300">{avg.toFixed(2)}</span>
+              {hi - lo > 0.005 && <> · range {lo.toFixed(2)}–{hi.toFixed(2)}</>}
+            </div>
+          )}
         </div>
       </header>
       {slip.odds < target * 0.98 && <p className="mb-2 text-[11px] text-amber">Closest available: nothing in this window reached {target.toFixed(2)} within the leg limit.</p>}
