@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { allMarkets, marketHit } from "@/lib/markets";
 import type { Leg } from "@/lib/slips";
 import { SlipWorkshop, type SlipView } from "@/components/SlipWorkshop";
+import { tz } from "@/lib/tz";
 
 export const metadata = { title: "Slips" };
 export const dynamic = "force-dynamic";
@@ -29,5 +30,5 @@ export default async function Slips() {
     }),
   }));
   const active = jar.get("pe_slip")?.value;
-  return <SlipWorkshop slips={views} activeId={views.some((v) => v.id === active) ? active! : views[0]?.id ?? null} />;
+  return <SlipWorkshop slips={views} activeId={views.some((v) => v.id === active) ? active! : views[0]?.id ?? null} zone={await tz()} />;
 }

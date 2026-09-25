@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { dataMode } from "@/lib/mode";
 import { loadScoredCalls } from "@/lib/pipeline/ledger";
 import { computeAccuracy, dailySeries, type Metrics } from "@/lib/accuracy";
+import { tz } from "@/lib/tz";
 import { MODEL_VERSION } from "@/lib/model/constants";
 import { EmptyState } from "@/components/EmptyState";
 import { BrierChart } from "@/components/BrierChart";
@@ -29,7 +30,7 @@ export default async function Accuracy() {
     action={{ href: "/methodology", label: "How scoring works" }} /></>);
 
   const r = computeAccuracy(calls);
-  const series = dailySeries(calls).map((d) => ({ day: d.day, model: d.report.model.brier, home: d.report.alwaysHome.brier, n: d.report.n }));
+  const series = dailySeries(calls, await tz()).map((d) => ({ day: d.day, model: d.report.model.brier, home: d.report.alwaysHome.brier, n: d.report.n }));
   const row = (name: string, m: Metrics | null, note?: string, best?: boolean) => m && (
     <tr className="border-t hairline">
       <td className="py-2 font-sans text-slate-300">{name}{note && <span className="block text-[10px] text-slate-500">{note}</span>}</td>

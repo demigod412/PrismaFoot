@@ -4,6 +4,7 @@
  */
 import { formatInTimeZone } from "date-fns-tz";
 import { marketHit, type MarketKey, type MarketTip } from "./markets";
+import { DEFAULT_TZ } from "./time";
 
 export type Triple = [number, number, number]; // home, draw, away
 export interface ScoredCall {
@@ -85,8 +86,8 @@ export function computeAccuracy(calls: ScoredCall[]): AccuracyReport {
   };
 }
 
-/** Per-day series (WAT calendar days, by kickoff). */
-export function dailySeries(calls: ScoredCall[], tz = "Africa/Lagos") {
+/** Per-day series (calendar days in `tz`, by kickoff). */
+export function dailySeries(calls: ScoredCall[], tz = DEFAULT_TZ) {
   const by = new Map<string, ScoredCall[]>();
   for (const c of calls) { const k = formatInTimeZone(c.kickoff, tz, "yyyy-MM-dd"); by.set(k, [...(by.get(k) ?? []), c]); }
   return [...by.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([day, cs]) => ({ day, calls: cs, report: computeAccuracy(cs) }));

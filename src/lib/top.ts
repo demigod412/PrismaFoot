@@ -6,16 +6,17 @@ import { allMarkets, marketHit, type MarketGroup, type MarketKey, type MarketTip
  *   strength = calibrated p × (0.85 + 0.15 × confidence/100)
  * Left out: Low-confidence calls, tips under 55% and draws.
  * Caps in the mixed ("All markets") list, so high-probability markets can't take over:
- *   max 2 double chance · max 2 Under 4.5 · max 2 win-by-2 handicap · max 1 half Under 2.5 (1st or 2nd half)
+ *   max 5 double chance · max 5 Under 4.5 · max 5 win-by-2 handicap · max 2 half Under 2.5 (1st or 2nd half)
+ * Caps scale with the list length: they were 2/2/2/1 when it held 20 tips.
  * When a match's strongest tip is blocked by a cap, its next-strongest market is used instead.
  */
-export const TOP_N = 20;
+export const TOP_N = 50;
 export const MIN_P = 0.55;
 export const WINDOWS = [1, 2, 3, 4, 5, 6, 7] as const;
 const EXCLUDED: MarketKey[] = ["draw"];
 
 /** Max tips per capped category in the mixed list. */
-export const CAPS = { dc: 2, under45: 2, hcp: 2, halfU25: 1 } as const;
+export const CAPS = { dc: 5, under45: 5, hcp: 5, halfU25: 2 } as const;
 type CapKey = keyof typeof CAPS;
 const capOf = (t: MarketTip): CapKey | null => (t.group === "dc" ? "dc" : t.key === "under45" ? "under45" : t.group === "hcp" ? "hcp" : t.key === "h1_under25" || t.key === "h2_under25" ? "halfU25" : null);
 
@@ -36,7 +37,7 @@ export function tipsFor(p: Prediction, home: string, away: string, group?: Marke
 /**
  * Strongest single tip for one match (match page headline and board rows).
  * Double chance, Under 4.5, 1st-half Under 2.5 and 2nd-half Under 2.5 are never the headline pick: they would head almost every match.
- * They stay visible in the match's "All markets" card and (capped) in the Top 20.
+ * They stay visible in the match's "All markets" card and (capped) in the Top 50.
  */
 export const HEADLINE_EXCLUDED = (t: MarketTip) => t.group === "dc" || t.key === "under45" || t.key === "h1_under25" || t.key === "h2_under25";
 export function bestTip(p: Prediction, home: string, away: string, group?: MarketGroup): Tip | null {

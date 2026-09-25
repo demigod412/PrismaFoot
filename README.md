@@ -50,7 +50,7 @@ scripts/backtest-synthetic.ts     walk-forward Brier/log loss vs baselines on si
 | 3 | T-15 lock, results + settle (append-only), calibration refit, Accuracy page with baselines | done (0.5.0) |
 | 4 | Slip workshop: save, optimise, split, merge, copy | done (0.5.0) |
 | 5 | Sportybet booking codes (best effort, unofficial endpoints) | done (0.5.0) |
-| — | Top 20 (most likely / best value), cross-league club ratings, promoted-team priors | done (0.5.0) |
+| — | Top 50 (most likely / best value), cross-league club ratings, promoted-team priors | done (0.5.0) |
 | 6 | xG ratings, 1X2 blend, Ask page | not started |
 
 ## Odds builder
@@ -68,6 +68,10 @@ cd /var/www/pitchedge && sudo -u ubuntu npm run -s ingest
 
 # Ledger checks (locks, results, accuracy). Add -- --demo for a full pipeline test on demo data.
 cd /var/www/pitchedge && sudo -u ubuntu npm run selfcheck
+
+# Which leagues your plan actually covers, and which allowlist entries matched nothing.
+# Add -- --missing for just the competitions your plan has that are not being synced.
+cd /var/www/pitchedge && sudo -u ubuntu npm run leaguecheck
 
 # Service and logs
 sudo systemctl status pitchedge
@@ -98,6 +102,7 @@ sudo sed -i "s|^FOOTBALL_DATA_KEY=.*|FOOTBALL_DATA_KEY=your_new_key|" /var/www/p
 | `PRIMARY_PROVIDER=` | `football-data`, `api-football` or `sportmonks` — only this one is used |
 | `FIXTURE_WINDOW_DAYS=21` | how far ahead fixtures are fetched and predicted |
 | `PREDICTION_LOCK_MINUTES=15` | when a call locks before kick-off |
+| `DEFAULT_TIMEZONE=Africa/Lagos` | fallback kickoff timezone, for a device that has not picked one in Settings → Display |
 | `SPORTYBET_ENABLED=false` | switch off booking codes |
 | `SETTINGS_PIN=` / `CRON_SECRET=` | Settings PIN · protects the scheduled-job URLs |
 
@@ -109,6 +114,12 @@ cd ~/PrismaFoot && git pull
 sudo bash ./setup-lightsail.sh update pitchedge
 ```
 From a zip: unzip to `/tmp/pe`, `rsync -a --delete --exclude .git --exclude node_modules --exclude .env /tmp/pe/pitchedge/ ~/PrismaFoot/`, commit, push, then the update command above.
+
+### Kickoff timezone
+Each device picks its own under **Settings → Display** — no PIN needed, since it only touches that
+browser's own cookie and changes nothing for anyone else. It sets kickoff times, the date strip and
+which matches count as "today"; UTC stays printed underneath every kickoff. "Detect from this device"
+uses the zone the browser already reports. `DEFAULT_TIMEZONE` applies only until a device chooses.
 
 ### Access code
 Set, change or remove it in **Settings → Access code** (PIN-protected, always reachable). It covers every page, locks again after 30 minutes of inactivity, and locks the form for 5 minutes after 5 wrong tries.

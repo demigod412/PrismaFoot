@@ -1,8 +1,9 @@
 "use client";
-import { useActionState, useState, useTransition } from "react";
-import { saveFloors, saveKeys, savePrefs, testConnection, unlock, type ActionState } from "./actions";
+import { useActionState, useRef, useState, useTransition } from "react";
+import { saveFloors, saveKeys, savePrefs, saveTimezone, testConnection, unlock, type ActionState } from "./actions";
 import { cn } from "@/components/ui";
 import { lockNow, saveAccessCode } from "@/app/unlock/actions";
+import { TIMEZONE_GROUPS } from "@/lib/timezones";
 
 const input = "focus-ring w-full rounded-lg border hairline bg-black/30 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600";
 const btn = "focus-ring rounded-lg border border-edge/40 px-3 py-1.5 text-sm text-edge hover:bg-edge/10 disabled:opacity-50";
@@ -79,7 +80,7 @@ export function FloorsForm({ floors }: { floors: Record<string, number> }) {
       {Object.entries(floors).map(([k, v]) => (
         <label key={k} className="text-xs text-slate-400">{labels[k] ?? k}<input name={k} type="number" step="0.01" min="0.01" max="0.99" defaultValue={v} className={cn(input, "num")} /></label>
       ))}
-      <p className="sm:col-span-2 text-xs leading-relaxed text-slate-400">A floor is the minimum model probability a pick needs before that scanner shows it. 0.60 = 60%. Raise a floor for fewer, stronger picks; lower it for more. Floors only filter the scanner lists — the Top 20 and each match page always show their strongest markets.</p>
+      <p className="sm:col-span-2 text-xs leading-relaxed text-slate-400">A floor is the minimum model probability a pick needs before that scanner shows it. 0.60 = 60%. Raise a floor for fewer, stronger picks; lower it for more. Floors only filter the scanner lists — the Top 50 and each match page always show their strongest markets.</p>
       <div className="sm:col-span-2"><button className={btn} disabled={pending}>Save floors</button><Status s={s} /></div>
     </form>
   );
@@ -120,5 +121,51 @@ export function AccessCodeForm({ isSet }: { isSet: boolean }) {
       </div>
       <Status s={s} />
     </div>
+  );
+}
+
+/**
+ * Kickoff timezone for this device. Not PIN-gated: it only touches this browser's cookie.
+ * "Detect" reads the zone the browser already reports, which is right almost every time.
+ */
+export function TimezoneForm({ current, isDefault }: { current: string; isDefault: boolean }) {
+  const [s, act, pending] = useActionState(saveTimezone, null);
+  const form = useRef<HTMLFormElement>(null);
+  const select = useRef<HTMLSelectElement>(null);
+  const detect = () => {
+    const guess = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const el = select.current;
+    if (!el || !guess) return;
+    // Offer the detected zone even when it is not one of the curated options.
+    if (![...el.options].some((o) => o.value === guess)) {
+      const o = document.createElement("option");
+      o.value = guess; o.textContent = `${guess.replace(/_/g, " ")} (detected)`;
+      el.add(o, 0);
+    }
+    el.value = guess;
+    form.current?.requestSubmit();
+  };
+  return (
+    <form ref={form} action={act} className="space-y-2">
+      <label className="block text-xs text-slate-400">Kickoff timezone (this device)
+        <select ref={select} name="zone" defaultValue={isDefault ? "__default__" : current} className={input}>
+          <option value="__default__">Server default{isDefault ? ` — ${current.replace(/_/g, " ")}` : ""}</option>
+          {TIMEZONE_GROUPS.map((g) => (
+            <optgroup key={g.group} label={g.group}>
+              {g.zones.map((z) => <option key={z} value={z}>{z.replace(/_/g, " ")}</option>)}
+            </optgroup>
+          ))}
+        </select>
+      </label>
+      <div className="flex flex-wrap items-center gap-2">
+        <button className={btn} disabled={pending}>{pending ? "Saving…" : "Save timezone"}</button>
+        <button type="button" onClick={detect} disabled={pending} className={btn}>Detect from this device</button>
+      </div>
+      <p className="text-xs leading-relaxed text-slate-400">
+        Changes only what this browser shows: kickoff times, the date strip and which matches count as
+        &ldquo;today&rdquo;. UTC stays printed underneath every kickoff. Other devices keep their own choice.
+      </p>
+      <Status s={s} />
+    </form>
   );
 }

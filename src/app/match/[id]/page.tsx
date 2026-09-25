@@ -2,7 +2,8 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { getMatch } from "@/lib/queries";
-import { fmtUtc, fmtWat } from "@/lib/time";
+import { fmtIn, fmtUtc, tzOffsetLabel } from "@/lib/time";
+import { tz } from "@/lib/tz";
 import { ProbBar } from "@/components/ProbBar";
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
 import { allMarkets, marketHit, GROUP_LABEL, type MarketGroup } from "@/lib/markets";
@@ -34,6 +35,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 export default async function MatchPage({ params }: { params: Promise<{ id: string }> }) {
   const data = await getMatch((await params).id);
   if (!data) notFound();
+  const zone = await tz();
   const { fx, homeLast, awayLast, h2h } = data;
   const p = fx.predictions[0];
   const H = fx.homeTeam.shortName ?? fx.homeTeam.name, A = fx.awayTeam.shortName ?? fx.awayTeam.name;
@@ -56,7 +58,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
       {/* The one loud moment: the strongest tip (no correct-score call). */}
       <header className="relative mt-3 overflow-hidden rounded-[20px] border hairline bg-[radial-gradient(120%_90%_at_50%_0%,#13203a_0%,#0B1220_55%,#070B14_100%)] px-4 pb-6 pt-5 md:px-8 md:pt-7">
         <div className="flex items-center justify-between text-xs text-slate-400">
-          <span className="num">{fmtWat(fx.kickoffUtc, "EEE d MMM, HH:mm")} WAT <span className="text-slate-600">/ {fmtUtc(fx.kickoffUtc)} UTC</span></span>
+          <span className="num">{fmtIn(fx.kickoffUtc, zone, "EEE d MMM, HH:mm")} {tzOffsetLabel(zone, fx.kickoffUtc)} <span className="text-slate-600">/ {fmtUtc(fx.kickoffUtc)} UTC</span></span>
           {p && <ConfidenceBadge band={p.band} score={p.confidence} />}
         </div>
         <div className="mt-6 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
@@ -136,7 +138,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
 
       {done && p && (
         <Card className="mt-4">
-          <SectionTitle aside={p.lockedAt ? `locked ${fmtWat(p.lockedAt, "d MMM HH:mm")} WAT` : "pre-lock call (not scored)"}>Result vs call</SectionTitle>
+          <SectionTitle aside={p.lockedAt ? `locked ${fmtIn(p.lockedAt, zone, "d MMM HH:mm")} ${tzOffsetLabel(zone, p.lockedAt)}` : "pre-lock call (not scored)"}>Result vs call</SectionTitle>
           {(() => {
             const o = outcomeOf(fx.homeGoals!, fx.awayGoals!);
             const called = [p.calHome, p.calDraw, p.calAway].indexOf(Math.max(p.calHome, p.calDraw, p.calAway));
@@ -233,7 +235,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
             <ul className="divide-y divide-white/[0.05] text-sm">
               {h2h.map((g) => (
                 <li key={g.id} className="flex items-center justify-between py-2">
-                  <span className="num text-xs text-slate-500">{fmtWat(g.kickoffUtc, "d MMM yy")}</span>
+                  <span className="num text-xs text-slate-500">{fmtIn(g.kickoffUtc, zone, "d MMM yy")}</span>
                   <span className="flex-1 truncate px-3 text-right text-slate-300">{g.homeTeam.shortName ?? g.homeTeam.name}</span>
                   <span className="num text-slate-100">{g.homeGoals}–{g.awayGoals}</span>
                   <span className="flex-1 truncate px-3 text-slate-300">{g.awayTeam.shortName ?? g.awayTeam.name}</span>

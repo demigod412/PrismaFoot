@@ -1,5 +1,67 @@
 # Changelog
 
+## 0.9.0 — fixtures as the home page, Top 50, safer Builder, many more leagues, your own timezone
+- **The fixtures board is now the landing page.** The separate "Today" screen is gone: opening the app
+  puts you straight on the date strip with the league and market filters. `/fixtures` still works and
+  redirects, so old links, shared day links and an installed PWA all keep working. The scanner
+  shortcut row and the accuracy tile that used to sit above the list were dropped — both are one tap
+  away in the nav and under More.
+- **The 1 X 2 percentages now show on phones.** The stacked home/draw/away bar was desktop-only because
+  the mobile row had no column for it; it now gets its own full-width line under the team names, from
+  the same component as the desktop one, so the two can never drift apart.
+- **Top 20 is now Top 50**, still one tip per match and still ranked by probability with the small
+  confidence boost. The per-market caps scale with the longer list — at most 5 double chance, 5 Under 4.5,
+  5 win-by-2 and 2 half Under 2.5 (they were 2/2/2/1 for 20 slots) — so the extra 30 places stay varied
+  instead of filling with the markets that naturally price highest. The "Best value" list keeps its own
+  length and is now titled as itself rather than borrowing the Top 50 heading.
+- **Builder → Safest never uses a leg priced above 1.60.** A long target is reached with more, shorter
+  picks rather than a few risky ones. The cap is absolute: when a target cannot be reached under it, the
+  page says so and points at a longer window, a lower target, more legs or Best value, rather than
+  quietly slipping a 3.00 leg into a slip labelled "safest". The 14-day track record on that tab is
+  rebuilt under the same cap. Best value is unchanged.
+- **Second and third tiers, and about 40 more countries** (API-Football, matched by country + name, so
+  they work on any plan that includes them):
+  · new second tiers — Scotland, Belgium, Turkey, Greece, Switzerland, Austria, Denmark, **Norway**,
+    Sweden, **Finland**, Iceland, Poland, **Czechia**, Slovakia, Hungary, **Romania**, Bulgaria, Croatia,
+    Serbia, Slovenia, Ukraine, Russia, Cyprus, Israel, Ireland, Bosnia, Estonia, **Argentina**,
+    **Uruguay**, **Ecuador**, Chile, Colombia, Peru, Paraguay, Mexico, USA, Brazil, Japan, South Korea,
+    China, India, Thailand, Saudi Arabia, Egypt, Morocco, Algeria, Tunisia, South Africa
+  · new third tiers — Spain, Italy, Germany, France, Netherlands, Portugal, Scotland, Turkey, Denmark,
+    Norway, Sweden, Poland, Romania, Argentina, Brazil, USA, Japan; England's National League
+  · new countries — Latvia, Lithuania, Albania, North Macedonia, Montenegro, Malta, Luxembourg, Wales,
+    Northern Ireland, Georgia, Armenia, Azerbaijan, Belarus, Moldova, Kazakhstan, Canada, Bolivia,
+    Venezuela, Paraguay, Costa Rica, Honduras, Guatemala, Panama, Bahrain, Kuwait, Oman, Jordan, Iran,
+    Iraq, Uzbekistan, New Zealand, Vietnam, Thailand, Indonesia, Malaysia, Zambia, Tanzania, Uganda,
+    Cameroon, Ivory Coast, Senegal, Angola
+  Lower tiers feed the same cross-league club-strength pool, and a promoted or relegated club now
+  carries a prior from the division it actually came from.
+- **`npm run leaguecheck`** — new script that lists what your plan offers and how the allowlist maps onto
+  it: every competition being synced with its tier and filter, every competition your plan includes that
+  is *not* synced, and every allowlist entry that matched nothing. Because leagues are matched by name, a
+  provider that spells one differently is skipped silently; this is how you find those. Worth running
+  once after this update.
+- **Kickoff timezone is now yours to choose, per device** (Settings → Display). Around 135 zones across
+  Africa, Europe, North America, Central and South America, the Middle East, Asia and the Pacific, plus
+  "Detect from this device". It changes kickoff times, the date strip and which matches count as "today",
+  for that browser only — no accounts, nothing shared, and every other device keeps its own choice. UTC
+  stays printed underneath every kickoff. `DEFAULT_TIMEZONE` is now only the fallback for a device that
+  has not chosen.
+  - Fix along the way: day boundaries used a hardcoded +1 hour for Lagos and 0 for everywhere else, so
+    any other zone put late-night and early-morning kickoffs on the wrong calendar day. They now use the
+    zone's real rules, including daylight saving and half-hour offsets.
+  - The "WAT" label next to kickoff times is gone, replaced by the actual offset of the chosen zone
+    (UTC+1, UTC-5, UTC+5:30). It was wrong for anyone not in West Africa.
+
+## 0.8.1
+- **Value list odds ceiling**: the Best value list can be capped at shorter prices (2, 3 or 6), since
+  shorter legs mean a steadier record.
+- **★ marks standout value** — High confidence, 50% or better, and an edge of 8% or more — rather than
+  just a tip that clears the qualifying bar.
+- **Minimum leg count in the Builder**: spreads the same target price over more, shorter-priced legs.
+  Each leg is individually safer, though the combined chance still follows the price you aim at.
+- Fix: the builder's beam search could extend a partial slip past the maximum leg count before checking it.
+- (This release shipped without a changelog entry or a version bump at the time; recorded here for the record.)
+
 ## 0.8.0 — Odds builder
 - New **Builder** page: pick a target price (3, 5, 10, 30, 100 or your own) and a window (today, 2 days, 3 days, this week, 14 days) and get the combination that reaches it with the best chance, plus two alternatives.
 - Legs come from every market, alternative lines and specials included. One leg per match, at most 2 per competition and 2 of the same market type; the spread rules relax only if the target is otherwise unreachable.

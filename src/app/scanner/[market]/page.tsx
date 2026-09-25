@@ -10,13 +10,15 @@ import { FilterSelect } from "@/components/FilterSelect";
 import { EmptyState } from "@/components/EmptyState";
 import { Chip } from "@/components/ui";
 import { BlendBuilder, type BlendCandidate } from "@/components/BlendBuilder";
-import { fmtWat } from "@/lib/time";
+import { fmtIn } from "@/lib/time";
+import { tz } from "@/lib/tz";
 
 export default async function ScannerPage({ params, searchParams }: { params: Promise<{ market: string }>; searchParams: Promise<{ focus?: string }> }) {
   const { market } = await params; const { focus } = await searchParams;
   const def = SCANNERS.find((s) => s.slug === market);
   if (!def) notFound();
   const floors = { ...DEFAULT_FLOORS, ...(await getSetting<Partial<ScannerFloors>>("scannerFloors", {})) };
+  const zone = await tz();
   const now = new Date();
   const fixtures = (await getBoard({ from: now, to: new Date(now.getTime() + FIXTURE_WINDOW_DAYS * 86_400_000), focus })).filter((f) => f.predictions[0]);
   const focusChips = (
@@ -30,7 +32,7 @@ export default async function ScannerPage({ params, searchParams }: { params: Pr
   if (def.slug === "blend") {
     const cands: BlendCandidate[] = fixtures.map((f) => {
       const p = f.predictions[0];
-      return { id: f.id, title: `${f.homeTeam.shortName ?? f.homeTeam.name} v ${f.awayTeam.shortName ?? f.awayTeam.name}`, when: fmtWat(f.kickoffUtc, "EEE HH:mm"), band: p.band,
+      return { id: f.id, title: `${f.homeTeam.shortName ?? f.homeTeam.name} v ${f.awayTeam.shortName ?? f.awayTeam.name}`, when: fmtIn(f.kickoffUtc, zone, "EEE HH:mm"), band: p.band,
         markets: allMarkets(p, "Home", "Away").map((m) => ({ key: m.key, label: m.short, p: m.p })) };
     });
     return (<><Header name={def.name} blurb={def.blurb} n={cands.length} />{focusChips}<BlendBuilder candidates={cands} /></>);

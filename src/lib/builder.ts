@@ -5,6 +5,8 @@
  *   value    — edge = p × odds − 1 (only meaningful with real odds)
  *   scoring  — "value" ranks legs by edge per unit of price added; "safe" ranks by reliability
  *   spread   — one leg per match, at most 2 per competition and 2 of the same market type
+ *   leg cap  — "safe" mode refuses any leg priced above SAFE_MAX_LEG_ODDS, so a long target is
+ *              reached with many short picks rather than a few risky ones
  *   honesty  — with fair odds the target decides the chance (3.0 ⇒ ~33%); the search decides HOW you get there
  */
 export interface Candidate {
@@ -15,10 +17,18 @@ export interface Candidate {
 export interface BuildOptions {
   target: number; maxLegs?: number; minLegs?: number; minP?: number; mode?: "value" | "safe";
   maxPerLeague?: number; maxPerGroup?: number; band?: string; overshoot?: number;
+  /** Hard ceiling on any single leg's price. Never relaxed, even when the target becomes unreachable. */
+  maxLegOdds?: number;
 }
 export interface BuiltSlip { legs: Candidate[]; odds: number; p: number; adjusted: number; edge: number; real: boolean; short?: boolean; relaxed?: boolean }
 
 export const DEFAULTS = { maxLegs: 12, minLegs: 1, minP: 0.5, maxPerLeague: 2, maxPerGroup: 2, overshoot: 1.35 };
+/**
+ * Safest mode: no leg priced above this. 1.60 is roughly a 62% chance, so every pick in the slip
+ * is one the model rates a clear favourite — the point of the tab. A target that cannot be reached
+ * under the cap returns nothing rather than quietly slipping a 3.00 leg into a "safest" slip.
+ */
+export const SAFE_MAX_LEG_ODDS = 1.6;
 /**
  * If nothing lands in the band, try again with a wider band and, after that, with the spread rules relaxed
  * (few leagues on a quiet day can make "max 2 per competition" impossible for a long target).
@@ -46,7 +56,8 @@ function search(all: Candidate[], o: BuildOptions, want: number, widen: number, 
   const base = { ...DEFAULTS, ...o };
   const cfg = { ...base, maxPerLeague: base.maxPerLeague + extra, maxPerGroup: base.maxPerGroup + extra };
   const target = Math.max(1.01, o.target), ceiling = target * (1 + (cfg.overshoot - 1) * widen);
-  const pool = all.filter((c) => c.p >= cfg.minP && c.odds > 1.01 && (!o.band || c.band !== "LOW"))
+  const pool = all.filter((c) => c.p >= cfg.minP && c.odds > 1.01 && (!o.band || c.band !== "LOW")
+      && (!cfg.maxLegOdds || c.odds <= cfg.maxLegOdds + 1e-9))
     .map((c) => ({ ...c, trust: c.trust ?? 1 }));
   if (!pool.length) return [];
   // Rank: value mode prefers edge per unit of price; safe mode prefers reliable probability per unit of price.

@@ -1,51 +1,69 @@
-import Link from "next/link";
-import { next48h } from "@/lib/queries";
-import { FixtureList } from "@/components/FixtureList";
-import { EmptyState } from "@/components/EmptyState";
-import { PullToRefresh } from "@/components/PullToRefresh";
-import { SCANNERS, scan, DEFAULT_FLOORS } from "@/lib/scanners";
+import { getBoard, getLeagues } from "@/lib/queries";
+import { dayKeyIn, dayStart, fmtIn, isDayKey } from "@/lib/time";
+import { tz } from "@/lib/tz";
 import { prisma } from "@/lib/db";
 import { dataMode } from "@/lib/mode";
-import { dayKey, fmtWat } from "@/lib/time";
+import { DateNav } from "@/components/DateNav";
+import { FixtureList } from "@/components/FixtureList";
+import { FilterSelect } from "@/components/FilterSelect";
+import { EmptyState } from "@/components/EmptyState";
+import { PullToRefresh } from "@/components/PullToRefresh";
+import { scan, DEFAULT_FLOORS, type ScannerSlug } from "@/lib/scanners";
 
-export default async function Home() {
-  const [fixtures, mode] = await Promise.all([next48h(), dataMode()]);
-  const nextUp = fixtures.length ? null : await prisma.fixture.findFirst({ where: { provider: mode.provider, status: "SCHEDULED", kickoffUtc: { gt: new Date() } }, orderBy: { kickoffUtc: "asc" }, include: { league: true } });
-  const settled = await prisma.prediction.count({ where: { lockedAt: { not: null }, fixture: { provider: mode.provider, status: "FINISHED" } } });
-  const withCalls = fixtures.filter((f) => f.predictions[0]);
-  const counts = Object.fromEntries(SCANNERS.filter((s) => s.slug !== "all" && s.slug !== "blend")
-    .map((s) => [s.slug, withCalls.filter((f) => scan(s.slug, f.predictions[0], DEFAULT_FLOORS)).length]));
+export const metadata = { title: "Fixtures" };
+const MARKETS: { slug: ScannerSlug; label: string; group: string }[] = [
+  { slug: "all", label: "All markets", group: "" },
+  { slug: "win", label: "Win", group: "Result" }, { slug: "dc", label: "Double chance", group: "Result" }, { slug: "draw", label: "Draw", group: "Result" },
+  { slug: "winover", label: "Win or Over 2.5", group: "Result" }, { slug: "by2", label: "Win by 2+", group: "Result" },
+  { slug: "o15", label: "Over 1.5", group: "Goals" }, { slug: "o25", label: "Over 2.5", group: "Goals" }, { slug: "u25", label: "Under 2.5", group: "Goals" },
+  { slug: "u35", label: "Under 3.5", group: "Goals" }, { slug: "u45", label: "Under 4.5", group: "Goals" },
+  { slug: "btts", label: "Both teams to score", group: "Goals" }, { slug: "bttsno", label: "BTTS No", group: "Goals" },
+  { slug: "h1u15", label: "1st half Under 1.5", group: "Halves" }, { slug: "h1u25", label: "1st half Under 2.5", group: "Halves" },
+  { slug: "h2u25", label: "2nd half Under 2.5", group: "Halves" }, { slug: "htdraw", label: "Half-time draw", group: "Halves" },
+  { slug: "corners", label: "Corners", group: "Stats" }, { slug: "shots", label: "Total shots", group: "Stats" },
+  { slug: "safe", label: "Safe picks", group: "Other" },
+];
+
+/** The fixtures board is the landing page: a date strip, two filters and the matches for that day. */
+export default async function Home({ searchParams }: { searchParams: Promise<{ date?: string; league?: string; market?: string }> }) {
+  const sp = await searchParams;
+  const zone = await tz();
+  const date = isDayKey(sp.date) ? sp.date : dayKeyIn(new Date(), zone);
+  const market = (MARKETS.find((m) => m.slug === sp.market)?.slug ?? "all") as ScannerSlug;
+  const from = dayStart(date, zone);
+  const [leagues, all] = await Promise.all([getLeagues(), getBoard({ from, to: new Date(from.getTime() + 86_400_000), leagueId: sp.league })]);
+  // Empty day: point to the nearest day that has fixtures (e.g. during international breaks)
+  const nextDay = all.length ? null : await (async () => {
+    const { provider } = await dataMode();
+    const f = await prisma.fixture.findFirst({ where: { provider, kickoffUtc: { gte: new Date(from.getTime() + 86_400_000) }, ...(sp.league ? { leagueId: sp.league } : {}) }, orderBy: { kickoffUtc: "asc" }, select: { kickoffUtc: true } });
+    return f ? dayKeyIn(f.kickoffUtc, zone) : null;
+  })();
+  const picks = new Map<string, { label: string; p: number }>();
+  const shown = all.filter((f) => {
+    const p = f.predictions[0]; if (!p) return market === "all";
+    const k = scan(market, p, DEFAULT_FLOORS); if (k && market !== "all") picks.set(f.id, k);
+    return !!k;
+  });
+  const q = (o: Record<string, string | undefined>) => {
+    const s = new URLSearchParams(Object.entries({ date, league: sp.league, market, ...o }).filter(([, v]) => v && v !== "all") as [string, string][]).toString();
+    return s ? `?${s}` : "";
+  };
 
   return (
     <PullToRefresh>
-      <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Next 48 hours</h1>
-        <p className="mt-1 text-sm text-slate-400">{withCalls.length} fixtures with a model call. Kickoffs in WAT, UTC underneath.</p>
-      </header>
-
-      <div className="mb-6 grid gap-3 md:grid-cols-[1fr_16rem]">
-        <nav aria-label="Scanner shortcuts" className="flex gap-2 overflow-x-auto pb-1">
-          <Link href="/top" className="focus-ring glass hidden shrink-0 !rounded-xl border-edge/40 px-3 py-2 text-sm text-edge md:block">Top 20</Link>
-          {SCANNERS.filter((s) => ["safe", "win", "dc", "o25", "u25", "btts", "bttsno", "by2", "corners", "shots"].includes(s.slug)).map((s) => (
-            <Link key={s.slug} href={`/scanner/${s.slug}`} className="focus-ring glass shrink-0 !rounded-xl px-3 py-2 text-sm transition-colors duration-200 hover:border-edge/40">
-              {s.name} <span className="num ml-1 text-edge">{counts[s.slug] ?? 0}</span>
-            </Link>
-          ))}
-        </nav>
-        <Link href="/top" className="focus-ring glass !rounded-xl border-edge/30 px-3 py-2 text-sm md:hidden">
-          <span className="text-edge">Top 20 tips</span> <span className="text-slate-400">today → next 7 days</span>
-        </Link>
-        <Link href="/accuracy" className="focus-ring glass !rounded-xl px-3 py-2 text-sm">
-          <span className="text-slate-400">Accuracy ledger</span>{" "}
-          <span className="num text-slate-100">{settled}</span> <span className="text-slate-400">settled calls</span>
-        </Link>
+      <h1 className="mb-4 text-2xl font-semibold tracking-tight">Fixtures</h1>
+      <DateNav active={date} base="/" extra={`${sp.league ? `&league=${sp.league}` : ""}${market !== "all" ? `&market=${market}` : ""}`} />
+      <div data-no-ptr className="mb-5 grid gap-2 sm:grid-cols-2">
+        <FilterSelect label="League" value={sp.league ?? "all"}
+          options={[{ value: "all", label: `All leagues (${leagues.length})`, href: `/${q({ league: undefined })}` },
+            ...leagues.map((l) => ({ value: l.id, label: l.name, group: l.country, href: `/${q({ league: l.id })}` }))]} />
+        <FilterSelect label="Market" value={market} options={MARKETS.map((m) => ({ value: m.slug, label: m.label, group: m.group, href: `/${q({ market: m.slug })}` }))} />
       </div>
-
-      {fixtures.length === 0 ? (
-        <EmptyState title="No fixtures in the next 48 hours"
-          body={nextUp ? `Next match: ${nextUp.league.name}, ${fmtWat(nextUp.kickoffUtc, "EEE d MMM, HH:mm")} WAT. Leagues pause during international breaks.` : mode.demo ? "Seed demo data with npm run db:seed, or add a data key." : "No upcoming fixtures are stored yet. They appear after the next sync."}
-          action={nextUp ? { href: `/fixtures?date=${dayKey(nextUp.kickoffUtc)}`, label: "Go to that day" } : { href: "/fixtures", label: "Open the fixtures board" }} />
-      ) : <FixtureList fixtures={fixtures} />}
+      {shown.length ? <FixtureList fixtures={shown} picks={picks} />
+        : all.length
+          ? <EmptyState title="Nothing matches this filter" body="Fixtures exist on this date, but none pass the selected market floor." action={{ href: q({ market: "all" }) || "/", label: "Show all markets" }} />
+          : <EmptyState title="No fixtures on this date" body={nextDay ? `Next matches: ${fmtIn(dayStart(nextDay, zone), zone, "EEEE d MMMM")}. Leagues pause during international breaks.` : "No upcoming fixtures are stored for the selected leagues."}
+              action={nextDay ? { href: `/?date=${nextDay}${sp.league ? `&league=${sp.league}` : ""}`, label: "Go to next match day" } : undefined} />}
     </PullToRefresh>
   );
 }

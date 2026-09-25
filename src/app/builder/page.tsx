@@ -3,10 +3,11 @@ import { prisma } from "@/lib/db";
 import { dataMode } from "@/lib/mode";
 import { getBoard } from "@/lib/queries";
 import { allMarkets, GROUP_LABEL, marketHit, type MarketKey } from "@/lib/markets";
-import { buildSlips, legHint, oneInN, type Candidate } from "@/lib/builder";
+import { buildSlips, legHint, oneInN, SAFE_MAX_LEG_ODDS, type Candidate } from "@/lib/builder";
 
 import { FIXTURE_WINDOW_DAYS } from "@/lib/window";
-import { dayKey, fmtWat } from "@/lib/time";
+import { dayKeyIn, dayStart, fmtIn } from "@/lib/time";
+import { tz } from "@/lib/tz";
 import { BuilderResult } from "@/components/BuilderResult";
 import { FilterSelect } from "@/components/FilterSelect";
 import { EmptyState } from "@/components/EmptyState";
@@ -28,6 +29,10 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
   const href = (o: Partial<{ target: number; days: number; mode: string; legs: number; min: number }>) =>
     `/builder?target=${o.target ?? target}&days=${o.days ?? days}&mode=${o.mode ?? mode}&legs=${o.legs ?? maxLegs}&min=${o.min ?? minLegs}`;
 
+  // The cap applies when the user has actually chosen Safest. With no bookmaker odds the toggle is
+  // hidden and the search runs in safe mode anyway; capping there would silently change that view.
+  const legCap = mode === "safe" ? SAFE_MAX_LEG_ODDS : undefined;
+  const zone = await tz();
   const now = new Date();
   const fixtures = await getBoard({ from: now, to: new Date(now.getTime() + Math.min(days, FIXTURE_WINDOW_DAYS) * DAY) });
   const quotes = await prisma.oddsQuote.findMany({ where: { fixtureId: { in: fixtures.map((f) => f.id) } }, orderBy: { fetchedAt: "desc" } });
@@ -48,24 +53,24 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
     });
   });
   const withOdds = candidates.some((c) => c.real);
-  const slips = buildSlips(candidates, { target, maxLegs, minLegs, mode: withOdds ? mode : "safe", band: "LOW" }, 3);
+  const slips = buildSlips(candidates, { target, maxLegs, minLegs, mode: withOdds ? mode : "safe", band: "LOW", maxLegOdds: legCap }, 3);
   const hint = legHint(target);
 
   // Track record: build the same target from locked calls on each of the last 14 days and score it.
   const since = new Date(now.getTime() - 14 * DAY);
   const locked = await prisma.prediction.findMany({
-    where: { lockedAt: { not: null }, fixture: { kickoffUtc: { gte: since, lt: new Date(dayKey(now) + "T00:00:00Z") }, results: { some: {} } } },
+    where: { lockedAt: { not: null }, fixture: { kickoffUtc: { gte: since, lt: dayStart(dayKeyIn(now, zone), zone) }, results: { some: {} } } },
     include: { fixture: { include: { homeTeam: true, awayTeam: true, league: true, results: { orderBy: { settledAt: "desc" }, take: 1 } } } },
   });
   const byDay = new Map<string, typeof locked>();
-  for (const l of locked) { const k = dayKey(l.fixture.kickoffUtc); byDay.set(k, [...(byDay.get(k) ?? []), l]); }
+  for (const l of locked) { const k = dayKeyIn(l.fixture.kickoffUtc, zone); byDay.set(k, [...(byDay.get(k) ?? []), l]); }
   const record = [...byDay.entries()].sort(([a], [b]) => b.localeCompare(a)).flatMap(([day, ps]) => {
     const cands: Candidate[] = ps.flatMap((x) => {
       const H = x.fixture.homeTeam.shortName ?? x.fixture.homeTeam.name, A = x.fixture.awayTeam.shortName ?? x.fixture.awayTeam.name;
       return allMarkets(x, H, A).map((m) => ({ matchId: x.fixtureId, league: x.fixture.league.name, startMs: +x.fixture.kickoffUtc, match: `${H} v ${A}`,
         label: m.label, market: m.key, group: m.group, p: m.p, odds: 1 / m.p, real: false, band: x.band }));
     });
-    const [built] = buildSlips(cands, { target, maxLegs, minLegs, mode: "safe", band: "LOW" }, 1);
+    const [built] = buildSlips(cands, { target, maxLegs, minLegs, mode: "safe", band: "LOW", maxLegOdds: legCap }, 1);
     if (!built) return [];
     const res = (id: string) => { const f = ps.find((x) => x.fixtureId === id)!.fixture, r = f.results[0];
       return { h: r.homeGoals, a: r.awayGoals, hc: f.homeCorners, ac: f.awayCorners, hs: f.homeShots, as: f.awayShots, hh: r.htHome, ha: r.htAway }; };
@@ -85,6 +90,7 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
           Setting a minimum number of legs spreads the same price over more, shorter-priced picks — each leg safer,
           though the combined chance still follows the price you aim at.
           {withOdds ? " Bookmaker prices are used where they exist, so value legs are preferred." : " No bookmaker prices are stored, so the model's fair odds are used: the target itself sets the chance."}
+          {legCap ? ` Safest never uses a leg priced above ${legCap.toFixed(2)}, so the target is reached with more, shorter picks.` : ""}
         </p>
       </header>
 
@@ -118,14 +124,16 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
 
       {slips.length === 0 ? (
         <EmptyState title="No combination reaches that target"
-          body={`Nothing in this window adds up to ${target.toFixed(2)} within the leg limits${minLegs > 1 ? ` (at least ${minLegs} legs)` : ""}. Try a longer window, a lower target, or a smaller minimum.`}
+          body={legCap
+            ? `Safest only uses legs priced ${legCap.toFixed(2)} or shorter, and nothing in this window reaches ${target.toFixed(2)} that way within ${maxLegs} legs${minLegs > 1 ? ` (at least ${minLegs})` : ""}. Try a longer window, a lower target, more legs, or switch to Best value.`
+            : `Nothing in this window adds up to ${target.toFixed(2)} within the leg limits${minLegs > 1 ? ` (at least ${minLegs} legs)` : ""}. Try a longer window, a lower target, or a smaller minimum.`}
           action={{ href: href({ days: Math.min(14, days * 2) }), label: "Widen the window" }} />
       ) : (
         <div className="space-y-4">
           {slips.map((s, i) => (
             <BuilderResult key={i} index={i} target={target}
               slip={{ odds: s.odds, p: s.p, adjusted: s.adjusted, real: s.real, edge: s.edge,
-                legs: s.legs.map((l) => ({ fixtureId: l.matchId, market: l.market, label: l.label, match: l.match, league: l.league, p: l.p, odds: l.odds, real: l.real, group: GROUP_LABEL[l.group as keyof typeof GROUP_LABEL] ?? l.group, when: fmtWat(new Date(l.startMs), "EEE HH:mm") })) }} />
+                legs: s.legs.map((l) => ({ fixtureId: l.matchId, market: l.market, label: l.label, match: l.match, league: l.league, p: l.p, odds: l.odds, real: l.real, group: GROUP_LABEL[l.group as keyof typeof GROUP_LABEL] ?? l.group, when: fmtIn(new Date(l.startMs), zone, "EEE HH:mm") })) }} />
           ))}
         </div>
       )}

@@ -298,3 +298,64 @@ describe("builder: minimum legs and value ceilings", () => {
     expect(isStarred({ edge: 0.04, band: "HIGH", p: 0.6 })).toBe(false);   // a small edge is not standout
   });
 });
+
+
+import { SAFE_MAX_LEG_ODDS } from "@/lib/builder";
+describe("builder: safest leg cap", () => {
+  const cand = (i: number, p: number, odds?: number) => ({ matchId: `m${i}`, league: `L${i % 8}`, startMs: i, match: `A${i} v B${i}`,
+    label: `pick ${i}`, market: "home", group: ["win", "goals", "btts", "halves", "combo"][i % 5], p,
+    odds: odds ?? 1 / p, real: true, band: "MEDIUM" });
+  // A spread of prices from about 1.25 to about 3.30, so the cap has something to exclude.
+  const pool = Array.from({ length: 80 }, (_, i) => cand(i, 0.3 + (i % 10) * 0.05));
+
+  it("never uses a leg priced above the cap", () => {
+    const slips = buildSlips(pool, { target: 5, maxLegOdds: SAFE_MAX_LEG_ODDS, minP: 0.3 }, 3);
+    expect(slips.length).toBeGreaterThan(0);
+    for (const s of slips) for (const l of s.legs) expect(l.odds).toBeLessThanOrEqual(SAFE_MAX_LEG_ODDS);
+  });
+
+  it("reaches the same target with more legs than an uncapped search", () => {
+    const [uncapped] = buildSlips(pool, { target: 8, minP: 0.3 });
+    const [capped] = buildSlips(pool, { target: 8, maxLegOdds: SAFE_MAX_LEG_ODDS, minP: 0.3 });
+    expect(capped.legs.length).toBeGreaterThan(uncapped.legs.length);
+    expect(capped.odds).toBeGreaterThanOrEqual(8);
+  });
+
+  it("returns nothing rather than breaking the cap when the target is out of reach", () => {
+    // Every leg is 1.25, so 4 legs is the most 1.25^n can give inside maxLegs: 1.25^4 is about 2.44.
+    const shortOnly = Array.from({ length: 30 }, (_, i) => cand(i, 0.8, 1.25));
+    expect(buildSlips(shortOnly, { target: 50, maxLegs: 4, maxLegOdds: SAFE_MAX_LEG_ODDS })).toEqual([]);
+  });
+});
+
+import { dayKeyIn, dayStart, isTimeZone, tzOffsetLabel } from "@/lib/time";
+describe("per-device timezone", () => {
+  it("starts the day at local midnight, not a fixed offset", () => {
+    // Lagos is UTC+1 year round, so 1 Jan starts at 23:00 UTC on 31 Dec.
+    expect(dayStart("2026-01-01", "Africa/Lagos").toISOString()).toBe("2025-12-31T23:00:00.000Z");
+    // New York is UTC-5 in January and UTC-4 in July: the old fixed-offset version got one of these wrong.
+    expect(dayStart("2026-01-15", "America/New_York").toISOString()).toBe("2026-01-15T05:00:00.000Z");
+    expect(dayStart("2026-07-15", "America/New_York").toISOString()).toBe("2026-07-15T04:00:00.000Z");
+    // Half-hour offset.
+    expect(dayStart("2026-03-10", "Asia/Kolkata").toISOString()).toBe("2026-03-09T18:30:00.000Z");
+  });
+
+  it("puts a kickoff on the right calendar day for the viewer", () => {
+    const kickoff = new Date("2026-03-10T01:30:00Z"); // late night in Lagos, still the 9th in New York
+    expect(dayKeyIn(kickoff, "Africa/Lagos")).toBe("2026-03-10");
+    expect(dayKeyIn(kickoff, "America/New_York")).toBe("2026-03-09");
+    expect(dayKeyIn(kickoff, "Asia/Tokyo")).toBe("2026-03-10");
+  });
+
+  it("labels the offset without relying on locale data", () => {
+    expect(tzOffsetLabel("Africa/Lagos", new Date("2026-01-01T12:00:00Z"))).toBe("UTC+1");
+    expect(tzOffsetLabel("America/New_York", new Date("2026-01-15T12:00:00Z"))).toBe("UTC-5");
+    expect(tzOffsetLabel("Asia/Kolkata", new Date("2026-01-15T12:00:00Z"))).toBe("UTC+5:30");
+    expect(tzOffsetLabel("UTC", new Date("2026-01-15T12:00:00Z"))).toBe("UTC");
+  });
+
+  it("rejects a junk timezone cookie", () => {
+    for (const ok of ["Africa/Lagos", "America/Argentina/Buenos_Aires", "UTC", "Europe/London"]) expect(isTimeZone(ok)).toBe(true);
+    for (const bad of ["", undefined, null, "Not/AZone", "../../etc/passwd", "a".repeat(100)]) expect(isTimeZone(bad)).toBe(false);
+  });
+});

@@ -6,7 +6,8 @@ import { selectTop, tipHit, tipsFor, TOP_N, WINDOWS, CAPS, type Tip } from "@/li
 import { GROUP_LABEL, marketHit, type MarketGroup, type MarketKey } from "@/lib/markets";
 import { flatStakeRoi, selectTopValue, valueTips, VALUE, type ValueTip, VALUE_CEILINGS } from "@/lib/value";
 import type { QuoteMap } from "@/lib/odds";
-import { dayKey, fmtUtc, fmtWat, watDayStart } from "@/lib/time";
+import { dayKeyIn, dayStart, fmtIn, fmtUtc } from "@/lib/time";
+import { tz } from "@/lib/tz";
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
 import { FilterSelect } from "@/components/FilterSelect";
 import { EmptyState } from "@/components/EmptyState";
@@ -14,7 +15,7 @@ import { PullToRefresh } from "@/components/PullToRefresh";
 import { AddToSlip } from "@/components/AddToSlip";
 import { Card, Chip, SectionTitle, cn, pct } from "@/components/ui";
 
-export const metadata = { title: "Top 20 tips" };
+export const metadata = { title: "Top 50 tips" };
 export const dynamic = "force-dynamic";
 const DAY = 86_400_000;
 const windowLabel = (d: number) => (d === 1 ? "Today" : `Next ${d} days`);
@@ -50,7 +51,8 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
     return `/top?${q}`;
   };
   const { provider, demo } = await dataMode();
-  const now = new Date(), todayStart = watDayStart(dayKey(now));
+  const zone = await tz();
+  const now = new Date(), todayStart = dayStart(dayKeyIn(now, zone), zone);
   const end = new Date(todayStart.getTime() + days * DAY);
 
   const fixtures = await prisma.fixture.findMany({
@@ -91,7 +93,7 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
   ) : new Map<string, QuoteMap>();
   type Day = { day: string; n: number; hits: number; avgP: number; profit?: number };
   const byDay = new Map<string, (typeof past)[number][]>();
-  past.forEach((f) => { const k = dayKey(f.kickoffUtc); byDay.set(k, [...(byDay.get(k) ?? []), f]); });
+  past.forEach((f) => { const k = dayKeyIn(f.kickoffUtc, zone); byDay.set(k, [...(byDay.get(k) ?? []), f]); });
   const record: Day[] = [...byDay.entries()].sort(([a], [b]) => b.localeCompare(a)).map(([day, fs]) => {
     const res = (f: (typeof fs)[number]) => ({ h: f.homeGoals!, a: f.awayGoals!, hc: f.homeCorners, ac: f.awayCorners, hs: f.homeShots, as: f.awayShots, hh: f.htHome, ha: f.htAway });
     const lines = (f: (typeof fs)[number]) => ({ corners: f.predictions[0].cornersLine, shots: f.predictions[0].shotsLine });
@@ -111,12 +113,12 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
       <Link href={`/match/${f.id}`} className="focus-ring grid min-w-0 flex-1 grid-cols-[2rem_1fr_auto] items-center gap-3 rounded-xl px-3 py-3 transition-colors duration-200 hover:bg-white/[0.04] md:grid-cols-[2.5rem_7rem_1fr_auto]">
         <span className={cn("num text-lg font-semibold", i < 3 ? "text-edge" : "text-slate-500")}>{i + 1}</span>
         <span className="hidden leading-tight md:block">
-          <span className="num block text-sm text-slate-200">{fmtWat(f.kickoffUtc, "EEE HH:mm")}</span>
+          <span className="num block text-sm text-slate-200">{fmtIn(f.kickoffUtc, zone, "EEE HH:mm")}</span>
           <span className="num block text-[10px] text-slate-500">{fmtUtc(f.kickoffUtc)} UTC</span>
         </span>
         <span className="min-w-0">
           <span className="block truncate text-sm text-slate-100">{names(f).join(" v ")}</span>
-          <span className="block truncate text-[11px] text-slate-500"><span className="num md:hidden">{fmtWat(f.kickoffUtc, "EEE HH:mm")} · </span>{f.league.name}</span>
+          <span className="block truncate text-[11px] text-slate-500"><span className="num md:hidden">{fmtIn(f.kickoffUtc, zone, "EEE HH:mm")} · </span>{f.league.name}</span>
           <span className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-edge/40 bg-edge/10 px-1.5 py-0.5 text-xs text-edge"><span className="text-[10px] text-edge/70">{groupName}</span>{label}</span>
         </span>
         <span className="flex flex-col items-end gap-1">
@@ -129,7 +131,7 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
   return (
     <PullToRefresh>
       <header className="mb-4">
-        <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Top 20 tips</h1>
+        <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">{list === "likely" ? `Top ${TOP_N} tips` : "Best value"}</h1>
         <p className="mt-1 max-w-2xl text-sm text-slate-400">
           {list === "likely"
             ? <>The strongest single tip from each match, ranked by model probability with a small boost for confidence. Medium or High confidence only. In the mixed list at most {CAPS.dc} double chance, {CAPS.under45} Under 4.5 and {CAPS.hcp} win-by-2 tips appear. A 75% tip still loses one time in four.</>
@@ -163,7 +165,7 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
           body={list === "value" && !quotesAvailable
             ? "The value list compares model probabilities with bookmaker odds, which come from API-Football. With football-data.org there are no odds, so this list stays empty."
             : nextUp && nextUp.kickoffUtc.getTime() > end.getTime()
-              ? `No matches are scheduled in this window. The next one is ${nextUp.league.name} on ${fmtWat(nextUp.kickoffUtc, "EEE d MMM")}.`
+              ? `No matches are scheduled in this window. The next one is ${nextUp.league.name} on ${fmtIn(nextUp.kickoffUtc, zone, "EEE d MMM")}.`
               : "No upcoming match in this window qualifies yet. Try a longer window."}
           action={days < 7 ? { href: href({ days: Math.min(7, days + 1) }), label: `Show ${windowLabel(Math.min(7, days + 1)).toLowerCase()}` } : undefined} />
       ) : (
@@ -183,7 +185,7 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
       )}
 
       <Card className="mt-6">
-        <SectionTitle aside="last 7 days · locked calls only">{list === "likely" ? "Top 20 track record" : "Value list track record"}</SectionTitle>
+        <SectionTitle aside="last 7 days · locked calls only">{list === "likely" ? `Top ${TOP_N} track record` : "Value list track record"}</SectionTitle>
         {record.length === 0 ? (
           <p className="text-sm text-slate-400">{demo ? "No locked demo calls in this window." : "Fills in as locked calls are settled. Each day's list is rebuilt from the calls locked 15 minutes before kickoff and scored against the final result."}{list === "value" ? " Value results also need the odds that were available before the lock." : ""}</p>
         ) : (

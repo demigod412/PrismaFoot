@@ -5,8 +5,8 @@ import { CalendarDays, LayoutGrid, Radar, Ticket, Menu, LineChart, BookOpen, Set
 import { cn } from "./ui";
 
 const TABS = [
-  { href: "/", label: "Today", icon: CalendarDays, match: (p: string) => p === "/" || p.startsWith("/fixtures") || p.startsWith("/match") },
-  { href: "/top", label: "Top 20", icon: Trophy, match: (p: string) => p.startsWith("/top") },
+  { href: "/", label: "Fixtures", icon: CalendarDays, match: (p: string) => p === "/" || p.startsWith("/fixtures") || p.startsWith("/match") },
+  { href: "/top", label: "Top 50", icon: Trophy, match: (p: string) => p.startsWith("/top") },
   { href: "/builder", label: "Builder", icon: Calculator, match: (p: string) => p.startsWith("/builder") },
   { href: "/scanner", label: "Scanners", icon: Radar, match: (p: string) => p.startsWith("/scanner") },
   { href: "/slips", label: "Slips", icon: Ticket, match: (p: string) => p.startsWith("/slips") },
@@ -17,7 +17,7 @@ export function BottomTabs() {
   const path = usePathname();
   return (
     <nav aria-label="Primary" className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t hairline bg-ink-950/90 backdrop-blur md:hidden">
-      <ul className="grid grid-cols-5">
+      <ul className="grid grid-cols-6">
         {TABS.map((t) => {
           const on = t.match(path);
           return (
@@ -49,9 +49,8 @@ export function LeftRail({ leagues }: { leagues: { id: string; name: string; cou
         Pitch<span className="text-edge">Edge</span>
       </Link>
       <nav aria-label="Primary" className="space-y-0.5">
-        {item("/", "Today", CalendarDays, path === "/")}
-        {item("/top", "Top 20 tips", Trophy, path.startsWith("/top"))}
-        {item("/fixtures", "Fixtures", CalendarDays, path.startsWith("/fixtures"))}
+        {item("/", "Fixtures", CalendarDays, path === "/" || path.startsWith("/fixtures"))}
+        {item("/top", "Top 50 tips", Trophy, path.startsWith("/top"))}
         {item("/leagues", "Leagues", LayoutGrid, path.startsWith("/leagues"))}
         {item("/builder", "Odds builder", Calculator, path.startsWith("/builder"))}
         {item("/scanner", "Scanners", Radar, path.startsWith("/scanner"))}

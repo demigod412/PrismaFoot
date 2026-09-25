@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Scissors, Trash2, Merge, Plus, Ticket, Wand2, X } from "lucide-react";
-import { formatInTimeZone } from "date-fns-tz";
+import { fmtIn, tzOffsetLabel } from "@/lib/time";
 import { bookSportybet, deleteSlip, mergeInto, newSlip, optimiseSlip, removeFromSlip, renameSlip, selectSlip, splitSlip, type SlipResult } from "@/app/slips/actions";
 import { combinedP, fairOdds, slipText, type Leg } from "@/lib/slips";
 import { ConfidenceBadge } from "./ConfidenceBadge";
@@ -15,9 +15,9 @@ export type SlipLeg = Leg & { started: boolean; result: string | null; hit: bool
 export interface SlipView { id: string; name: string; legs: SlipLeg[]; bookingCode: string | null; bookingUrl: string | null; bookingNote: string | null }
 
 const btn = "focus-ring inline-flex items-center gap-1.5 rounded-lg border hairline px-2.5 py-1.5 text-xs text-slate-200 hover:border-edge/40 hover:text-edge disabled:opacity-40";
-const fmt = (iso: string) => formatInTimeZone(new Date(iso), "Africa/Lagos", "EEE d MMM HH:mm");
 
-export function SlipWorkshop({ slips, activeId }: { slips: SlipView[]; activeId: string | null }) {
+export function SlipWorkshop({ slips, activeId, zone }: { slips: SlipView[]; activeId: string | null; zone: string }) {
+  const fmt = (iso: string) => fmtIn(new Date(iso), zone, "EEE d MMM HH:mm");
   const router = useRouter();
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<SlipResult | null>(null);
@@ -28,7 +28,7 @@ export function SlipWorkshop({ slips, activeId }: { slips: SlipView[]; activeId:
   if (!slips.length) return (
     <>
       <h1 className="mb-4 text-2xl font-semibold tracking-tight">Slips</h1>
-      <EmptyState title="No slips yet" body="Tap + next to any market on a match page or in the Top 20 to start a slip. Legs are saved on this device." action={{ href: "/top", label: "Open Top 20 tips" }} />
+      <EmptyState title="No slips yet" body="Tap + next to any market on a match page or in the Top 50 to start a slip. Legs are saved on this device." action={{ href: "/top", label: "Open Top 50 tips" }} />
     </>
   );
   const open = slip?.legs.filter((l) => !l.started) ?? [];
@@ -52,13 +52,13 @@ export function SlipWorkshop({ slips, activeId }: { slips: SlipView[]; activeId:
       {slip && (
         <div className="grid gap-4 lg:grid-cols-[1fr_20rem]">
           <Card className="px-1 py-1 md:px-1 md:py-1">
-            {slip.legs.length === 0 ? <p className="p-4 text-sm text-slate-400">Empty slip. Add markets with the + buttons on match pages and the Top 20.</p> : (
+            {slip.legs.length === 0 ? <p className="p-4 text-sm text-slate-400">Empty slip. Add markets with the + buttons on match pages and the Top 50.</p> : (
               <ul className="divide-y divide-white/[0.05]">
                 {slip.legs.map((l) => (
                   <li key={l.fixtureId} className="flex items-center gap-3 px-3 py-3">
                     <div className="min-w-0 flex-1">
                       <Link href={`/match/${l.fixtureId}`} className="block truncate text-sm text-slate-100 hover:text-edge">{l.match}</Link>
-                      <div className="num text-[11px] text-slate-500">{fmt(l.kickoff)} WAT{l.result ? ` · FT ${l.result}` : l.started ? " · started" : ""}</div>
+                      <div className="num text-[11px] text-slate-500">{fmt(l.kickoff)} {tzOffsetLabel(zone, new Date(l.kickoff))}{l.result ? ` · FT ${l.result}` : l.started ? " · started" : ""}</div>
                       <div className="mt-1 text-xs text-edge">{l.label}</div>
                     </div>
                     <div className="flex flex-col items-end gap-1">

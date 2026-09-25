@@ -132,20 +132,23 @@ describe("new markets", () => {
   });
 });
 
-import { selectTop, tipsFor } from "@/lib/top";
-describe("top 20 caps", () => {
-  it("allows at most 2 double chance, 2 Under 4.5 and 2 win-by-2 in the mixed list", () => {
+import { CAPS, selectTop, tipsFor, TOP_N } from "@/lib/top";
+describe("top list caps", () => {
+  // Asserted against TOP_N and CAPS rather than literals, so resizing the list (20 -> 50)
+  // does not silently turn this into a test of nothing.
+  it("fills to TOP_N, one tip per match, respecting the per-market caps", () => {
     const mk = (i: number) => ({ band: "HIGH", confidence: 80, calHome: 0.6 + (i % 5) * 0.02, calDraw: 0.24, calAway: 0.16 - (i % 5) * 0.02,
       calOver15: 0.7, calOver25: 0.45, calOver35: 0.2, calOver45: 0.08, calBtts: 0.45, calHomeBy2: 0.58, calAwayBy2: 0.03 }) as never;
-    const items = Array.from({ length: 30 }, (_, i) => ({ item: i, id: String(i), startMs: i, tips: tipsFor(mk(i), "H", "A") }));
+    const items = Array.from({ length: TOP_N + 10 }, (_, i) => ({ item: i, id: String(i), startMs: i, tips: tipsFor(mk(i), "H", "A") }));
     const top = selectTop(items);
-    expect(top).toHaveLength(20);
+    expect(top).toHaveLength(TOP_N);
     const c = (f: (k: string, g: string) => boolean) => top.filter((t) => f(t.tip.key, t.tip.group)).length;
-    expect(c((_, g) => g === "dc")).toBeLessThanOrEqual(2);
-    expect(c((k) => k === "under45")).toBeLessThanOrEqual(2);
-    expect(c((_, g) => g === "hcp")).toBeLessThanOrEqual(2);
-    expect(new Set(top.map((t) => t.item)).size).toBe(20); // one tip per match
+    expect(c((_, g) => g === "dc")).toBeLessThanOrEqual(CAPS.dc);
+    expect(c((k) => k === "under45")).toBeLessThanOrEqual(CAPS.under45);
+    expect(c((_, g) => g === "hcp")).toBeLessThanOrEqual(CAPS.hcp);
+    expect(c((k) => k === "h1_under25" || k === "h2_under25")).toBeLessThanOrEqual(CAPS.halfU25);
+    expect(new Set(top.map((t) => t.item)).size).toBe(TOP_N); // one tip per match
     // filtered by market: no caps
-    expect(selectTop(items.map((x) => ({ ...x, tips: tipsFor(mk(Number(x.id)), "H", "A", "dc") })), "dc").length).toBe(20);
+    expect(selectTop(items.map((x) => ({ ...x, tips: tipsFor(mk(Number(x.id)), "H", "A", "dc") })), "dc").length).toBe(TOP_N);
   });
 });
