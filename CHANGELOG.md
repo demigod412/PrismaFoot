@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.10.0 — Upcoming / Live / Finished on the fixtures board
+- **Three tabs on the board**, with a count on each: **Upcoming** (not kicked off — the default, since
+  the board's job is the matches you can still bet on), **Live** (being played now, with a pulsing dot)
+  and **Finished** (played). The date strip, league filter and market filter all still apply, and the
+  tab is carried in the URL (`?show=live`) so a link keeps it.
+- **A tab does not rely on the stored status alone, because it cannot.** A provider status of LIVE is
+  only written when a job happens to run while a match is in progress, and the full sync runs every
+  three hours — so a 15:00 kickoff typically still reads SCHEDULED until 18:00, long after it ended. A
+  Live tab built on the raw status would sit empty through most of a Saturday. Kickoff time decides
+  instead: not started → upcoming, within 105 minutes of kickoff → live, beyond that → finished. A
+  fixture the provider *has* reported as LIVE gets 180 minutes, so a cup tie through extra time and
+  penalties is not filed as finished while it is still being played.
+- **A row shows a score whenever one exists**, not only after full time, so a match caught in progress
+  shows its running score. Finished matches read `FT`; one that has been played but whose score has not
+  arrived reads `result pending` (the results job runs every 15 minutes).
+- **Postponed and cancelled matches appear in no tab** — they have not been played and cannot be bet —
+  but they are counted in a line under the tabs rather than disappearing silently.
+- Empty states know which tab you are on: asking for Live on a date with none says what the date *does*
+  have and offers a button straight to it.
+
 ## 0.9.12 — say which competition is being worked on
 - The progress line is now printed **before** a competition is processed as well as after it. A sync
   that stalls or is killed previously left no record of which competition it died on — which is the one
