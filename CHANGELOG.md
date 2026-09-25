@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.12 — say which competition is being worked on
+- The progress line is now printed **before** a competition is processed as well as after it. A sync
+  that stalls or is killed previously left no record of which competition it died on — which is the one
+  thing worth knowing. Each line carries the season being requested, so a provider call that never
+  returns is attributable immediately.
+
 ## 0.9.11 — the capped budget goes to the leagues you bet on
 - **Fix: match statistics, bookmaker odds and injuries were being spent on the wrong leagues.** Those
   three are capped **per sync** (30 / 30 / 25), not per league, so whichever competitions run first

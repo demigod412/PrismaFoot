@@ -80,6 +80,9 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
         create: { provider, externalId: l.externalId, name: l.name, country: l.country, code: l.code, season: l.season, focusGroup: entry.focus, ratingPool: entry.pool ?? null, feedsPool: entry.feeds ?? null, neutral: !!entry.neutral, tier: entry.tier ?? 1 },
       });
       const major = majorLeague(l);
+      // Logged BEFORE the work, not just after: a sync that stalls or is killed otherwise leaves no
+      // trace of which competition it died on, which is exactly what you need to know.
+      note(`  → [${done + 1}/${leagues.length}] ${label(l)}${major ? " *" : ""} season ${l.season}…`);
       // Whole seasons in one request each (current + previous; 3 seasons for national teams).
       const fixtures: PFixture[] = [];
       const errors: string[] = [];
