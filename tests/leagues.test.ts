@@ -55,6 +55,42 @@ describe("API-Football league allowlist", () => {
     expect(leaked, `these would be synced by mistake:\n${leaked.join("\n")}`).toEqual([]);
   });
 
+  it("covers every top flight it lists a lower tier for", () => {
+    // K League 1 was dropped in the 0.9.6 rewrite while K League 2 and K3 stayed, so Korea
+    // synced its second and third tiers and not its first.
+    expect(match("South-Korea", "K League 1")).toBeTruthy();
+    expect(match("South-Korea", "K League 2")?.tier).toBe(2);
+    const tiered = MORE_API_FOOTBALL.filter((e) => e.match && (e.tier ?? 1) > 1);
+    const topFlights = new Set(MORE_API_FOOTBALL.filter((e) => e.match && (e.tier ?? 1) === 1).map((e) => e.match!.country));
+    // Every country with a lower tier here needs its top flight either here or under an explicit id.
+    const byId = new Set(["England", "Spain", "Italy", "Germany", "France", "Netherlands", "Portugal",
+      "Scotland", "Belgium", "Turkey", "Greece", "Austria", "Switzerland", "Denmark", "Norway", "Sweden",
+      "Brazil", "Argentina", "Mexico", "USA", "Saudi-Arabia", "Japan", "Egypt", "South-Africa", "Nigeria"]);
+    const orphans = [...new Set(tiered.map((e) => e.match!.country))].filter((c) => !topFlights.has(c) && !byId.has(c));
+    expect(orphans, `lower tiers with no top flight: ${orphans.join(", ")}`).toEqual([]);
+  });
+
+  it("refuses cups, super cups and one-off finals", () => {
+    // "Serie C - Supercoppa Lega Finals" slipped through the /^Serie C/ prefix.
+    for (const [c, n] of [["Italy", "Serie C - Supercoppa Lega Finals"], ["Paraguay", "Copa Paraguay"],
+      ["Poland", "Super Cup"], ["Romania", "Cupa României"], ["Hungary", "Magyar Kupa"],
+      ["Germany", "DFB Pokal"], ["England", "FA Trophy"]] as [string, string][]) {
+      expect(match(c, n), `${c} / ${n} should not sync`).toBeUndefined();
+    }
+    // ...but the curated international cups come in by id and must still work.
+    expect(entryFor(allow, { externalId: "1", name: "World Cup", country: "World" })).toBeTruthy();
+    expect(entryFor(allow, { externalId: "13", name: "CONMEBOL Libertadores", country: "World" })).toBeTruthy();
+  });
+
+  it("numbers the English pyramid correctly", () => {
+    // tier drives the prior a promoted or relegated club carries; League One and League Two
+    // were both marked tier 2.
+    const tier = (id: string) => allow.find((a) => a.id === id)?.tier;
+    expect(tier("40")).toBe(2); // Championship
+    expect(tier("41")).toBe(3); // League One
+    expect(tier("42")).toBe(4); // League Two
+  });
+
   it("still honours an explicit id even when the name looks excluded", () => {
     // Ids are curated by hand, so they bypass the name guard entirely.
     expect(entryFor(allow, { externalId: "39", name: "anything at all", country: "England" })).toBeTruthy();

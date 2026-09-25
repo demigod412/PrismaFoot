@@ -20,7 +20,7 @@ const deaccent = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "
  * in the women's, youth, reserve and play-off competitions sitting next to them under the same name
  * ("Primera División Femenina", "Liga 1 Feminin", "Serie C - Promotion - Play-offs").
  */
-const NEVER = /women|femen|femin|frauen|dames|\bu1[5-9]\b|\bu2[0-3]\b|youth|junior|primavera|reserve|academy|play-?offs?|promotion round|relegation round/i;
+const NEVER = /women|femen|femin|frauen|dames|\bu1[5-9]\b|\bu2[0-3]\b|youth|junior|primavera|reserve|academy|play-?offs?|promotion round|relegation round|super ?cup|supercoppa|supercopa|supercupa|\bcups?\b|coppa|\bcopa\b|\bcupa\b|\bkupa\b|pokal|trophy|shield|\bfinals?\b/i;
 
 /** Match a provider league to an allowlist entry: by id, or by country + name (so plan-specific ids don't matter). */
 export function entryFor(allow: LeagueEntry[], l: { externalId: string; name: string; country?: string | null }): LeagueEntry | undefined {
@@ -139,14 +139,15 @@ export const MORE_API_FOOTBALL: LeagueEntry[] = [
   WORLD("Iran", /^Persian Gulf Pro League$/i, "asia"), WORLD("Iran", /^Azadegan League$/i, "asia", { tier: 2 }),
   WORLD("Iraq", /^Iraqi League$/i, "asia"), WORLD("Uzbekistan", /^Super League$/i, "asia"), WORLD("Uzbekistan", /^Pro League A$/i, "asia", { tier: 2 }),
   WORLD("Japan", /^J2 League$/i, "asia", { tier: 2 }), WORLD("Japan", /^J3 League$/i, "asia", { tier: 3 }),
-  WORLD("South-Korea", /^K League 2$/i, "asia", { tier: 2 }), WORLD("South-Korea", /^K3 League$/i, "asia", { tier: 3 }),
+  WORLD("South-Korea", /^K League 1$/i, "asia"), WORLD("South-Korea", /^K League 2$/i, "asia", { tier: 2 }),
+  WORLD("South-Korea", /^K3 League$/i, "asia", { tier: 3 }),
   WORLD("China", /^Super League$/i, "asia"), WORLD("China", /^League One$/i, "asia", { tier: 2 }), WORLD("China", /^League Two$/i, "asia", { tier: 3 }),
   WORLD("Australia", /^A-League$/i, "asia"), WORLD("New-Zealand", /^National League - National$/i, "asia"),
   WORLD("India", /^Indian Super League$/i, "asia"), WORLD("India", /^I-League$/i, "asia", { tier: 2 }),
   WORLD("Thailand", /^Thai League 1$/i, "asia"), WORLD("Thailand", /^Thai League 2$/i, "asia", { tier: 2 }),
   WORLD("Vietnam", /^V\.League 1$/i, "asia"), WORLD("Vietnam", /^V\.League 2$/i, "asia", { tier: 2 }),
   WORLD("Indonesia", /^Liga 1$/i, "asia"), WORLD("Indonesia", /^Liga 2$/i, "asia", { tier: 2 }),
-  WORLD("Malaysia", /^Super League$/i, "asia"), WORLD("Malaysia", /^Premier League$/i, "asia", { tier: 2 }),
+  WORLD("Malaysia", /^Super League$/i, "asia"), // Premier League left out: this plan has nothing newer than 2022
   WORLD("Singapore", /^Premier League$/i, "asia"), WORLD("Hong-Kong", /^Premier League$/i, "asia"),
   WORLD("Chinese-Taipei", /^Taiwan Football Premier League$/i, "asia"),
 
@@ -166,7 +167,7 @@ export const MORE_API_FOOTBALL: LeagueEntry[] = [
   WORLD("Libya", /^Premier League$/i, "africa"), WORLD("Sudan", /^Sudani Premier League$/i, "africa"),
   WORLD("Ethiopia", /^Premier League$/i, "africa"), WORLD("Rwanda", /^National Soccer League$/i, "africa"),
   WORLD("Zimbabwe", /^Premier Soccer League$/i, "africa"), WORLD("Botswana", /^Premier League$/i, "africa"),
-  WORLD("Malawi", /^Super League$/i, "africa"), WORLD("Namibia", /^Premier League$/i, "africa"),
+  WORLD("Malawi", /^Super League$/i, "africa"), // Namibia left out: nothing newer than 2018 on this plan
   WORLD("Congo-DR", /^Ligue 1$/i, "africa"), WORLD("Togo", /^Championnat National$/i, "africa"),
   WORLD("Benin", /^Championnat National$/i, "africa"), WORLD("Gabon", /^Championnat D1$/i, "africa"),
 ];
@@ -194,7 +195,7 @@ export const LEAGUE_ALLOWLIST: Record<string, LeagueEntry[]> = {
     { id: "848", focus: "europe-strong", pool: "europe" }, // Conference League
     { id: "399", focus: "africa" }, // Nigeria NPFL
     // More top flights and second tiers (used when your API-Football plan includes them)
-    { id: "41", focus: "england", tier: 2 }, { id: "42", focus: "england", tier: 2 },            // League One, League Two
+    { id: "41", focus: "england", tier: 3 }, { id: "42", focus: "england", tier: 4 },            // League One, League Two
     { id: "141", focus: null, feeds: "europe", tier: 2 }, { id: "136", focus: null, feeds: "europe", tier: 2 }, // LaLiga 2, Serie B
     { id: "79", focus: null, feeds: "europe", tier: 2 }, { id: "62", focus: null, feeds: "europe", tier: 2 },   // 2. Bundesliga, Ligue 2
     { id: "179", focus: "europe-other", feeds: "europe" }, { id: "144", focus: "europe-other", feeds: "europe" }, // Scotland, Belgium

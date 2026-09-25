@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.7 — fixes found by auditing the 265 leagues that now sync
+- **Fix: South Korea's top flight was missing.** The 0.9.6 rewrite kept K League 2 and K3 League and
+  dropped K League 1, so the second and third tiers synced while the first did not. A test now checks
+  that every country with a lower tier also has its top flight, either here or under an explicit id.
+- **Fix: cups and one-off finals slipped through the prefix matches.** `/^Serie C/` also caught
+  "Serie C - Supercoppa Lega Finals". Cups, super cups, trophies, shields and finals are refused
+  outright — a knockout has no league table, so the ratings model has nothing to fit. The curated
+  international competitions (World Cup, Libertadores, the UEFA cups) come in by id and are unaffected.
+- **Fix: England's League One and League Two were both marked tier 2.** The pyramid is Premier League 1,
+  Championship 2, League One 3, League Two 4, National League 5, and `tier` is what gives a promoted or
+  relegated club its prior, so both were feeding the wrong prior. Pre-existing, not from 0.9.6.
+- Dropped two leagues whose newest season on this plan is long dead: Namibia's Premier League (nothing
+  after 2018) and Malaysia's Premier League (nothing after 2022). They cost requests on every sync and
+  showed up as empty leagues in the filter.
+
 ## 0.9.6 — the extra leagues were never wired in
 - **Fix: `MORE_API_FOOTBALL` was dead code.** The country + name league list was written in 0.7.1,
   extended to 166 entries in 0.9.0 — and never referenced by anything. `LEAGUE_ALLOWLIST` only ever
