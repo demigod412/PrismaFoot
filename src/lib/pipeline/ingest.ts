@@ -36,11 +36,25 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
     // Within that, least-recently-synced first: a run that gets cut short (a long first sync, a dropped
     // session, an out-of-memory kill) then resumes with the leagues it never reached rather than
     // starting over on the same ones.
-    const seen = new Map((await db.league.findMany({ where: { provider }, select: { externalId: true, lastSyncAt: true } }))
+    const lastSynced = new Map((await db.league.findMany({ where: { provider }, select: { externalId: true, lastSyncAt: true } }))
       .map((l) => [l.externalId, l.lastSyncAt?.getTime() ?? 0]));
     const leagues = (await p.getLeagues()).filter((l) => entryFor(allow, l))
       .sort((x, y) => Number(!!entryFor(allow, x)?.pool) - Number(!!entryFor(allow, y)?.pool)
-        || (seen.get(x.externalId) ?? 0) - (seen.get(y.externalId) ?? 0));
+        || (lastSynced.get(x.externalId) ?? 0) - (lastSynced.get(y.externalId) ?? 0));
+    const labelCount = new Map<string, number>();
+    for (const l of leagues) { const k = `${l.country} · ${l.name}`; labelCount.set(k, (labelCount.get(k) ?? 0) + 1); }
+    const label = (l: { name: string; country: string; externalId: string }) => {
+      const k = `${l.country} · ${l.name}`;
+      return labelCount.get(k)! > 1 ? `${k} #${l.externalId}` : k;
+    };
+    /**
+     * Progress on stderr, one line per competition. The report is a single blob printed at the end,
+     * which tells you nothing during a sync that now covers 265 competitions -- and nothing at all if
+     * the run is killed. stderr keeps stdout parseable; cron captures both.
+     */
+    const note = (msg: string) => process.stderr.write(`${new Date().toISOString()} ${msg}\n`);
+    note(`sync starting: ${leagues.length} competitions`);
+    let done = 0;
     let injuryCalls = 0, statsCalls = 0, oddsCalls = 0;
     const HISTORY_HOURS = Number(process.env.HISTORY_REFRESH_HOURS) || 24;
     const ODDS_CAP = Number(process.env.MAX_ODDS_CALLS) || 30;
@@ -74,7 +88,7 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
       await sleep(THROTTLE_MS[p.id]);
       const oldest = addDays(now, -(pool?.historyDays ?? opts.historyDays ?? 450)).getTime();
       const keep = fixtures.filter((f) => f.kickoffUtc.getTime() >= oldest && f.kickoffUtc.getTime() <= addDays(now, FIXTURE_WINDOW_DAYS).getTime());
-      if (!keep.length) { report[l.name] = { fixtures: 0, errors }; continue; } // don't mark synced when nothing came back
+      if (!keep.length) { report[label(l)] = { fixtures: 0, errors }; note(`[${++done}/${leagues.length}] ${label(l)} — no fixtures${errors.length ? `: ${errors[0]}` : ""}`); continue; } // don't mark synced when nothing came back
       const seen = new Set<string>();
       for (const f of keep) {
         if (seen.has(f.externalId)) continue; seen.add(f.externalId);
@@ -124,7 +138,7 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
         }
       }
       const upcoming = new Set(keep.filter((f) => f.status === "SCHEDULED" && f.kickoffUtc > now).map((f) => f.externalId)).size;
-      report[l.name] = { fixtures: seen.size, upcoming, ...(stats ? { stats } : {}), ...(quotes ? { quotes } : {}), ...(errors.length ? { errors } : {}), ...await rateAndPredictLeague(db, league.id, {
+      report[label(l)] = { fixtures: seen.size, upcoming, ...(stats ? { stats } : {}), ...(quotes ? { quotes } : {}), ...(errors.length ? { errors } : {}), ...await rateAndPredictLeague(db, league.id, {
         now,
         newsLoader: async (fx) => {
           if (fx.kickoffUtc.getTime() - now.getTime() > 24 * 3600_000) return null; // only fetch news close to kickoff
@@ -140,7 +154,10 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
           return { home: { confirmedStarterAbsences: 0 }, away: { confirmedStarterAbsences: 0 } };
         },
       }) };
+      const r = report[label(l)] as { fixtures?: number; upcoming?: number; predictions?: number };
+      note(`[${++done}/${leagues.length}] ${label(l)} — ${r.fixtures ?? 0} fixtures, ${r.upcoming ?? 0} upcoming, ${r.predictions ?? 0} predictions · ${providerCalls.get()} requests so far`);
     }
+    note(`all ${leagues.length} competitions done in ${providerCalls.get()} provider requests; running the ledger`);
     // Ledger: lock due calls, append results, refit calibration, refresh daily accuracy rows
     report.providerRequests = providerCalls.get();
     report.ledger = {

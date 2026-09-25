@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.10 — a long sync now shows progress
+- **The sync logs a line per competition to stderr as it goes.** The report was a single blob printed
+  at the end, so a run covering 265 competitions looked hung for its whole duration and told you
+  nothing at all if it was killed. Each competition now prints its position, fixtures, upcoming games,
+  predictions and the running provider-request count — so `tail -f` is useful, and a killed run leaves
+  a record of exactly where it stopped. stdout keeps the single parseable JSON report; cron captures both.
+- **Fix: the sync report collapsed same-named leagues.** It was keyed by bare league name, and a great
+  many countries run a "Premier League", a "Super Liga", a "First League" or a "Primera División" — so
+  at 265 competitions most of the report overwrote itself and a league returning nothing could hide
+  behind a healthy namesake. Keys are now "Country · League", with the provider id appended only where
+  even that repeats.
+- Renamed an inner variable that shadowed the new least-recently-synced map, which read like a bug.
+
 ## 0.9.9 — fix the sync being killed part-way through
 - **Fix: the European rating pool swallowed every lower tier.** The `EU()` helper marked every European
   entry as feeding the shared "europe" pool, second and third tiers included. That pool is assembled by
