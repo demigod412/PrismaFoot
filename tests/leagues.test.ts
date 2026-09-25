@@ -124,3 +124,44 @@ describe("european rating pool size", () => {
     expect(czech2!.feeds).toBeUndefined();
   });
 });
+
+describe("who gets the capped stats/odds/injury budget", () => {
+  // Those three calls are capped PER SYNC, not per league, so whichever leagues run first spend the
+  // lot. One real run gave 30 of 30 stats calls to Kenya's second tier before reaching anything else.
+  const isMajor = (country: string, name: string, externalId = "x") => {
+    const e = entryFor(allow, { externalId, name, country });
+    if (!e || e.pool) return false;
+    return e.focus === "europe-strong" || e.focus === "england" || (e.tier ?? 1) === 1;
+  };
+
+  it("includes top flights matched by name", () => {
+    for (const [c, n] of [["Finland", "Veikkausliiga"], ["Czech-Republic", "Czech Liga"],
+      ["Romania", "Liga I"], ["Serbia", "Super Liga"], ["Uruguay", "Primera Divisi\u00f3n"],
+      ["Peru", "Primera Divisi\u00f3n"], ["Iraq", "Iraqi League"]] as [string, string][]) {
+      expect(isMajor(c, n), `${c} / ${n} should get the budget`).toBe(true);
+    }
+  });
+
+  it("includes the top flights carried by an explicit id", () => {
+    // These arrive with their provider id and match on that, not on their name.
+    for (const [id, c, n] of [["39", "England", "Premier League"], ["140", "Spain", "La Liga"],
+      ["88", "Netherlands", "Eredivisie"], ["94", "Portugal", "Primeira Liga"],
+      ["203", "Turkey", "S\u00fcper Lig"], ["71", "Brazil", "Serie A"]] as [string, string, string][]) {
+      expect(isMajor(c, n, id), `${c} / ${n} (id ${id}) should get the budget`).toBe(true);
+    }
+  });
+
+  it("excludes lower tiers, where corners, shots and value are not worth the quota", () => {
+    for (const [c, n] of [["Kenya", "Super League"], ["Finland", "Kakkonen - Lohko A"],
+      ["Kuwait", "Division 1"], ["Italy", "Serie C - Girone A"], ["Czech-Republic", "3. liga - CFL A"],
+      ["Norway", "2. Division - Group 1"], ["Sweden", "Ettan - Norra"],
+      ["Argentina", "Primera B Metropolitana"]] as [string, string][]) {
+      expect(isMajor(c, n), `${c} / ${n} should not spend the budget`).toBe(false);
+    }
+  });
+
+  it("excludes the pooled cups, which are rated from the domestic leagues anyway", () => {
+    expect(isMajor("World", "UEFA Champions League", "2")).toBe(false);
+    expect(isMajor("World", "World Cup", "1")).toBe(false);
+  });
+});

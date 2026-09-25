@@ -38,6 +38,18 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
     // starting over on the same ones.
     const lastSynced = new Map((await db.league.findMany({ where: { provider }, select: { externalId: true, lastSyncAt: true } }))
       .map((l) => [l.externalId, l.lastSyncAt?.getTime() ?? 0]));
+    /**
+     * Match statistics, bookmaker odds and injuries are capped per SYNC, not per league, so whichever
+     * leagues come first spend the whole budget. Those markets (corners, shots, value) only matter where
+     * people actually bet, so the budget is reserved for the strong European leagues, England and other
+     * top flights. Without this, ordering by staleness handed all 85 calls to whatever obscure league
+     * happened to sort first — one run spent 30 stats calls on Kenya's second tier.
+     */
+    const majorLeague = (l: { externalId: string; name: string; country: string }) => {
+      const e = entryFor(allow, l);
+      if (!e || e.pool) return false;
+      return e.focus === "europe-strong" || e.focus === "england" || (e.tier ?? 1) === 1;
+    };
     const leagues = (await p.getLeagues()).filter((l) => entryFor(allow, l))
       .sort((x, y) => Number(!!entryFor(allow, x)?.pool) - Number(!!entryFor(allow, y)?.pool)
         || (lastSynced.get(x.externalId) ?? 0) - (lastSynced.get(y.externalId) ?? 0));
@@ -53,7 +65,7 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
      * the run is killed. stderr keeps stdout parseable; cron captures both.
      */
     const note = (msg: string) => process.stderr.write(`${new Date().toISOString()} ${msg}\n`);
-    note(`sync starting: ${leagues.length} competitions`);
+    note(`sync starting: ${leagues.length} competitions (* = gets the capped stats/odds/injury budget)`);
     let done = 0;
     let injuryCalls = 0, statsCalls = 0, oddsCalls = 0;
     const HISTORY_HOURS = Number(process.env.HISTORY_REFRESH_HOURS) || 24;
@@ -67,6 +79,7 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
         update: { name: l.name, country: l.country, code: l.code, focusGroup: entry.focus, ratingPool: entry.pool ?? null, feedsPool: entry.feeds ?? null, neutral: !!entry.neutral, tier: entry.tier ?? 1 },
         create: { provider, externalId: l.externalId, name: l.name, country: l.country, code: l.code, season: l.season, focusGroup: entry.focus, ratingPool: entry.pool ?? null, feedsPool: entry.feeds ?? null, neutral: !!entry.neutral, tier: entry.tier ?? 1 },
       });
+      const major = majorLeague(l);
       // Whole seasons in one request each (current + previous; 3 seasons for national teams).
       const fixtures: PFixture[] = [];
       const errors: string[] = [];
@@ -108,7 +121,7 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
 
       // Corners + total shots backfill (API-Football /fixtures/statistics: one request per match, newest first, capped per run)
       let stats = 0;
-      if (p.id === "api-football" && statsCalls < STATS_CAP) {
+      if (p.id === "api-football" && major && statsCalls < STATS_CAP) {
         const need = await db.fixture.findMany({ where: { leagueId: league.id, status: "FINISHED", statsFetched: false, kickoffUtc: { gte: addDays(now, -400) } }, orderBy: { kickoffUtc: "desc" }, take: STATS_CAP - statsCalls });
         for (const f of need) {
           try {
@@ -121,7 +134,7 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
       }
       // Bookmaker odds for the value list and the market baseline (API-Football), capped per run
       let quotes = 0;
-      if (p.getLeagueOdds && oddsCalls < ODDS_CAP) {
+      if (p.getLeagueOdds && major && oddsCalls < ODDS_CAP) {
         const soon = await db.fixture.findMany({ where: { leagueId: league.id, status: "SCHEDULED", kickoffUtc: { gt: now, lte: addDays(now, 7) } }, select: { id: true, externalId: true } });
         if (soon.length) {
           const byExt = new Map(soon.map((f) => [f.externalId, f.id]));
@@ -142,6 +155,7 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
         now,
         newsLoader: async (fx) => {
           if (fx.kickoffUtc.getTime() - now.getTime() > 24 * 3600_000) return null; // only fetch news close to kickoff
+          if (!major) return null; // the injury budget goes to the leagues people bet on
           if (injuryCalls >= (Number(process.env.MAX_INJURY_CALLS) || 25)) return null; // protect the daily quota
           injuryCalls++;
           const inj = await p.getInjuries(fx.externalId);
@@ -155,7 +169,7 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
         },
       }) };
       const r = report[label(l)] as { fixtures?: number; upcoming?: number; predictions?: number };
-      note(`[${++done}/${leagues.length}] ${label(l)} — ${r.fixtures ?? 0} fixtures, ${r.upcoming ?? 0} upcoming, ${r.predictions ?? 0} predictions · ${providerCalls.get()} requests so far`);
+      note(`[${++done}/${leagues.length}] ${label(l)}${major ? " *" : ""} — ${r.fixtures ?? 0} fixtures, ${r.upcoming ?? 0} upcoming, ${r.predictions ?? 0} predictions · ${providerCalls.get()} requests so far`);
     }
     note(`all ${leagues.length} competitions done in ${providerCalls.get()} provider requests; running the ledger`);
     // Ledger: lock due calls, append results, refit calibration, refresh daily accuracy rows

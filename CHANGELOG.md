@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.11 — the capped budget goes to the leagues you bet on
+- **Fix: match statistics, bookmaker odds and injuries were being spent on the wrong leagues.** Those
+  three are capped **per sync** (30 / 30 / 25), not per league, so whichever competitions run first
+  spend the lot. Ordering by staleness in 0.9.9 made that order effectively arbitrary, and a real run
+  gave 30 of 30 stats calls to Kenya's second tier — 66 provider requests for one competition — before
+  reaching anything anyone bets on. The budget is now reserved for the strong European leagues, England
+  and other top flights; lower tiers still get their fixtures and predictions every sync, just not
+  corners, shots, odds or injury checks, which are worth little there and cost the same.
+- The progress line marks which competitions draw on that budget with a `*`, so the effect is visible
+  while a sync runs.
+
 ## 0.9.10 — a long sync now shows progress
 - **The sync logs a line per competition to stderr as it goes.** The report was a single blob printed
   at the end, so a run covering 265 competitions looked hung for its whole duration and told you
