@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.2 — Min legs reaches the max-legs setting
+- The **Min legs** picker stopped at 8, so the leg counts that make a long target even were
+  unreachable: 19.00 over 12 legs is about 1.28 a leg, but 12 could not be asked for. It now offers
+  every step up to whatever **Max legs** is set to (10, 12 and 15 included).
+  Measured on a test pool, 19.00 with a minimum of 12: twelve legs averaging 1.28, spread 1.19×,
+  total 19.68. With no minimum the same target gives six legs at about 1.63 — both are even, they are
+  just even at different leg counts, which is what the minimum is for.
+
 ## 0.10.1 — even leg prices in the Odds builder
 - **Legs are now kept to a similar price.** A target of 3.00 with a minimum of 6 legs gives legs of
   about 3^(1/6) = **1.20 each**, instead of a 1.60 propped up by a 1.03 and four other near-certainties.

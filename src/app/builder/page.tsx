@@ -116,7 +116,9 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
         <FilterSelect label="Window" value={String(days)} options={WINDOWS.map(([d, l]) => ({ value: String(d), label: l, href: href({ days: d }) }))} />
         <FilterSelect label="Max legs" value={String(maxLegs)} options={[4, 6, 8, 10, 12, 15].map((n) => ({ value: String(n), label: `${n} legs`, href: href({ legs: n }) }))} />
         <FilterSelect label="Min legs" value={String(minLegs)}
-          options={[1, 3, 4, 5, 6, 8].map((n) => ({ value: String(n), label: n === 1 ? "no minimum" : `at least ${n}`, href: href({ min: n }) }))} />
+          // Up to the max-legs setting: a 19.00 target over 12 legs is ~1.28 a leg, which you cannot
+          // ask for if the minimum stops at 8.
+          options={[1, 3, 4, 5, 6, 8, 10, 12, 15].filter((n) => n <= maxLegs).map((n) => ({ value: String(n), label: n === 1 ? "no minimum" : `at least ${n}`, href: href({ min: n }) }))} />
         <FilterSelect label="Leg prices" value={evenLegs ? "even" : "mixed"}
           options={[{ value: "even", label: "Even", href: href({ even: true }) }, { value: "mixed", label: "Any mix", href: href({ even: false }) }]} />
       </div>
