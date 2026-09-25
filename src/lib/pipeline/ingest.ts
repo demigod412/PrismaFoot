@@ -33,8 +33,14 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
   providerCalls.reset();
   try {
     // Pooled competitions (European cups, internationals) last, so they see this run's domestic results.
+    // Within that, least-recently-synced first: a run that gets cut short (a long first sync, a dropped
+    // session, an out-of-memory kill) then resumes with the leagues it never reached rather than
+    // starting over on the same ones.
+    const seen = new Map((await db.league.findMany({ where: { provider }, select: { externalId: true, lastSyncAt: true } }))
+      .map((l) => [l.externalId, l.lastSyncAt?.getTime() ?? 0]));
     const leagues = (await p.getLeagues()).filter((l) => entryFor(allow, l))
-      .sort((x, y) => Number(!!entryFor(allow, x)?.pool) - Number(!!entryFor(allow, y)?.pool));
+      .sort((x, y) => Number(!!entryFor(allow, x)?.pool) - Number(!!entryFor(allow, y)?.pool)
+        || (seen.get(x.externalId) ?? 0) - (seen.get(y.externalId) ?? 0));
     let injuryCalls = 0, statsCalls = 0, oddsCalls = 0;
     const HISTORY_HOURS = Number(process.env.HISTORY_REFRESH_HOURS) || 24;
     const ODDS_CAP = Number(process.env.MAX_ODDS_CALLS) || 30;

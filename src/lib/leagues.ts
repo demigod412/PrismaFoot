@@ -32,7 +32,17 @@ export function entryFor(allow: LeagueEntry[], l: { externalId: string; name: st
 }
 
 /** Top flights matched by country + name on API-Football (any plan that includes them). Europe feeds the club-strength pool. */
-const EU = (country: string, name: RegExp, focus: string | null = "europe-other", extra: Partial<LeagueEntry> = {}): LeagueEntry => ({ match: { country, name }, focus, feeds: "europe", ...extra });
+/**
+ * A European league. Only TOP FLIGHTS feed the cross-league "europe" rating pool: that pool exists so a
+ * Champions League tie between clubs from different countries can be priced, and it is assembled by
+ * loading every finished fixture from every feeding league. Adding lower tiers to it is both pointless
+ * (a third-tier club never plays in Europe) and ruinous — with second and third tiers included the pool
+ * went from ~20 competitions to ~150, tens of thousands of fixtures held in memory, once per European
+ * cup, which is enough to get the sync killed on a small server. Lower tiers are still rated on their
+ * own league's fit, and a promoted club's prior comes from `tier` via newcomerPriors.
+ */
+const EU = (country: string, name: RegExp, focus: string | null = "europe-other", extra: Partial<LeagueEntry> = {}): LeagueEntry =>
+  ({ match: { country, name }, focus, ...((extra.tier ?? 1) === 1 ? { feeds: "europe" } : {}), ...extra });
 const WORLD = (country: string, name: RegExp, focus: string | null, extra: Partial<LeagueEntry> = {}): LeagueEntry => ({ match: { country, name }, focus, ...extra });
 export const MORE_API_FOOTBALL: LeagueEntry[] = [
   /*

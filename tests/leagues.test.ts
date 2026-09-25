@@ -103,3 +103,24 @@ describe("API-Football league allowlist", () => {
     expect(match("Nowhere", "First League")).toBeUndefined();
   });
 });
+
+describe("european rating pool size", () => {
+  // buildContext loads every finished fixture from the last 450 days across every league that feeds
+  // the pool, with both teams included, once per European cup. Letting lower tiers in took it from
+  // ~20 competitions to ~150 and got the sync killed for running out of memory.
+  it("is fed by top flights only", () => {
+    const feeders = MORE_API_FOOTBALL.filter((e) => e.feeds === "europe");
+    const lower = feeders.filter((e) => (e.tier ?? 1) !== 1).map((e) => `${e.match?.country} ${String(e.match?.name)}`);
+    expect(lower, `lower tiers must not feed the europe pool:\n${lower.join("\n")}`).toEqual([]);
+  });
+  it("stays small enough to fit in memory", () => {
+    const feeders = MORE_API_FOOTBALL.filter((e) => e.feeds === "europe");
+    expect(feeders.length).toBeGreaterThan(20);  // it is doing its job
+    expect(feeders.length).toBeLessThan(60);     // and not ruining the server
+  });
+  it("still rates lower tiers, just on their own league", () => {
+    const czech2 = MORE_API_FOOTBALL.find((e) => e.match?.country === "Czech-Republic" && e.tier === 2);
+    expect(czech2).toBeTruthy();
+    expect(czech2!.feeds).toBeUndefined();
+  });
+});

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.9 — fix the sync being killed part-way through
+- **Fix: the European rating pool swallowed every lower tier.** The `EU()` helper marked every European
+  entry as feeding the shared "europe" pool, second and third tiers included. That pool is assembled by
+  loading every finished fixture from the last 450 days across every feeding league, with both teams,
+  **once per European cup** — so 0.9.6 took it from about 20 competitions to about 150, tens of
+  thousands of fixtures in memory three times over, and the sync was killed for running out of memory
+  before it could finish. Only top flights feed it now (35 competitions), which is what it was for: a
+  third-tier club never plays in the Champions League. Lower tiers are still rated on their own
+  league's fit, and a promoted club's prior still comes from `tier`.
+  Tests now assert that no lower tier feeds the pool and that the pool stays under 60 competitions.
+- **An interrupted sync resumes instead of restarting.** Leagues are now taken least-recently-synced
+  first (pooled competitions still last), so a run cut short by a long first sync, a dropped session or
+  a kill picks up the leagues it never reached. Before, every run redid the same head of the list and
+  the tail was never synced at all.
+
 ## 0.9.8 — fits 265 leagues into a 7500/day quota
 - **Finished seasons are no longer re-downloaded every three hours.** Each sync asked the provider for
   every league's previous season(s) as well as its current one — three requests per league where two
