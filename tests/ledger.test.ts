@@ -359,3 +359,24 @@ describe("per-device timezone", () => {
     for (const bad of ["", undefined, null, "Not/AZone", "../../etc/passwd", "a".repeat(100)]) expect(isTimeZone(bad)).toBe(false);
   });
 });
+
+describe("provider request counting", () => {
+  it("counts every attempt, including the retry after a 429", async () => {
+    const { providerCalls, fetchJson } = await import("@/lib/providers/http");
+    providerCalls.reset();
+    expect(providerCalls.get()).toBe(0);
+    const realTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn: () => void) => realTimeout(fn, 0)) as unknown as typeof setTimeout;
+    let n = 0;
+    globalThis.fetch = (async () => {
+      n++;
+      return n === 1
+        ? new Response("", { status: 429, headers: { "Retry-After": "0" } })
+        : new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as typeof fetch;
+    await fetchJson("test", "https://example.test/x", {});
+    globalThis.setTimeout = realTimeout;
+    // A rate-limited attempt still consumes quota at the provider, so both are counted.
+    expect(providerCalls.get()).toBe(2);
+  });
+});

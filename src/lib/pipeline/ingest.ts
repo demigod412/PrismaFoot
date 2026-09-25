@@ -8,6 +8,7 @@ import { entryFor, LEAGUE_ALLOWLIST, POOL_SETTINGS } from "../leagues";
 import { FIXTURE_WINDOW_DAYS } from "../window";
 import { rateAndPredictLeague } from "./predict";
 import { lockDue, refitCalibration, settle, snapshotAccuracy } from "./ledger";
+import { providerCalls } from "../providers/http";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -29,11 +30,13 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
   const allow = LEAGUE_ALLOWLIST[p.id as keyof typeof LEAGUE_ALLOWLIST] ?? [];
   const log = await db.syncLog.create({ data: { provider, job: "fixtures", ok: false } });
   const report: Record<string, unknown> = {};
+  providerCalls.reset();
   try {
     // Pooled competitions (European cups, internationals) last, so they see this run's domestic results.
     const leagues = (await p.getLeagues()).filter((l) => entryFor(allow, l))
       .sort((x, y) => Number(!!entryFor(allow, x)?.pool) - Number(!!entryFor(allow, y)?.pool));
     let injuryCalls = 0, statsCalls = 0, oddsCalls = 0;
+    const HISTORY_HOURS = Number(process.env.HISTORY_REFRESH_HOURS) || 24;
     const ODDS_CAP = Number(process.env.MAX_ODDS_CALLS) || 30;
     const STATS_CAP = Number(process.env.MAX_STATS_CALLS) || 30;
     for (const l of leagues) {
@@ -48,7 +51,11 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
       const fixtures: PFixture[] = [];
       const errors: string[] = [];
       // Finals tournaments (World Cup, Euro…) only exist in their own year: don't ask for earlier "seasons".
-      const nSeasons = entry.neutral ? 1 : pool?.seasons ?? 2;
+      // The current season is always re-read — its results change. Previous seasons are finished and
+      // immutable, so re-downloading them every three hours was two thirds of the provider quota for
+      // nothing; they refresh once a day instead.
+      const historyDue = !league.historyAt || now.getTime() - league.historyAt.getTime() >= HISTORY_HOURS * 3600_000;
+      const nSeasons = entry.neutral ? 1 : historyDue ? pool?.seasons ?? 2 : 1;
       for (let k = 0; k < nSeasons; k++) {
         try { fixtures.push(...(await p.getFixtures({ leagueId: l.externalId, season: l.season - k }))); }
         catch (e) { errors.push(`${l.season - k}: ${(e as Error).message}`); }
@@ -77,7 +84,7 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
         };
         await db.fixture.upsert({ where: { provider_externalId: { provider, externalId: f.externalId } }, update: data, create: { provider, externalId: f.externalId, ...data } });
       }
-      await db.league.update({ where: { id: league.id }, data: { lastSyncAt: new Date() } });
+      await db.league.update({ where: { id: league.id }, data: { lastSyncAt: new Date(), ...(historyDue ? { historyAt: new Date() } : {}) } });
 
       // Corners + total shots backfill (API-Football /fixtures/statistics: one request per match, newest first, capped per run)
       let stats = 0;
@@ -129,6 +136,7 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
       }) };
     }
     // Ledger: lock due calls, append results, refit calibration, refresh daily accuracy rows
+    report.providerRequests = providerCalls.get();
     report.ledger = {
       locked: await lockDue(db, new Date()),
       settled: await settle(db, provider),

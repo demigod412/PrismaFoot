@@ -102,6 +102,7 @@ sudo sed -i "s|^FOOTBALL_DATA_KEY=.*|FOOTBALL_DATA_KEY=your_new_key|" /var/www/p
 | `PRIMARY_PROVIDER=` | `football-data`, `api-football` or `sportmonks` — only this one is used |
 | `FIXTURE_WINDOW_DAYS=21` | how far ahead fixtures are fetched and predicted |
 | `PREDICTION_LOCK_MINUTES=15` | when a call locks before kick-off |
+| `HISTORY_REFRESH_HOURS=24` | how often finished previous seasons are re-read. They never change, so once a day is plenty — lowering it multiplies provider requests for no new data |
 | `DEFAULT_TIMEZONE=Africa/Lagos` | fallback kickoff timezone, for a device that has not picked one in Settings → Display |
 | `SPORTYBET_ENABLED=false` | switch off booking codes |
 | `SETTINGS_PIN=` / `CRON_SECRET=` | Settings PIN · protects the scheduled-job URLs |

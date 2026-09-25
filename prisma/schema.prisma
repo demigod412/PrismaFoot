@@ -53,6 +53,7 @@ model League {
   baseGoals   Float    @default(1.35) // mean away goals, neutral scale
   volatility  Float    @default(0.5)  // 0..1, from residual variance of goal totals
   lastSyncAt  DateTime?
+  historyAt   DateTime? // last time finished previous seasons were re-read (they never change)
   teams       Team[]
   fixtures    Fixture[]
   createdAt   DateTime @default(now())

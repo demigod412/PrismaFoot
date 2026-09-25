@@ -1,5 +1,12 @@
 import "server-only";
 
+/**
+ * Provider HTTP requests made in this process, for the quota line in each sync report.
+ * Counts every attempt, including the retry after a 429, because the provider counts those too.
+ */
+let calls = 0;
+export const providerCalls = { get: () => calls, reset: () => { calls = 0; } };
+
 export class ProviderError extends Error {
   constructor(public provider: string, public status: number, message: string) { super(message); }
 }
@@ -15,6 +22,7 @@ export async function fetchJson<T>(provider: string, url: string, headers: Recor
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 12_000);
     try {
+      calls++;
       const res = await fetch(url, { headers, signal: ctl.signal, cache: "no-store" });
       if (res.status === 429 || res.status >= 500) {
         last = new ProviderError(provider, res.status, `${provider} ${res.status}`);

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.8 — fits 265 leagues into a 7500/day quota
+- **Finished seasons are no longer re-downloaded every three hours.** Each sync asked the provider for
+  every league's previous season(s) as well as its current one — three requests per league where two
+  would do, and the extra one fetched fixtures that finished months ago and can never change. At 265
+  competitions that was about 7,100 requests a day against a 7,500 ceiling. Previous seasons now
+  refresh once a day (`HISTORY_REFRESH_HOURS`, default 24); the current season is still re-read every
+  sync, because its results do change.
+  Measured effect: roughly **7,100 → 5,300 requests a day**, about 70% of the quota, with the 3-hourly
+  sync unchanged.
+- **Every sync report now carries `providerRequests`**, the actual number of provider calls that run
+  made, counting the retry after a rate-limit because the provider counts those too. Quota planning
+  stops being arithmetic and becomes something you can read off the last sync.
+- New `historyAt` per league records when its finished seasons were last re-read (`prisma db push`
+  applies it; the deploy script does that for you).
+
 ## 0.9.7 — fixes found by auditing the 265 leagues that now sync
 - **Fix: South Korea's top flight was missing.** The 0.9.6 rewrite kept K League 2 and K3 League and
   dropped K League 1, so the second and third tiers synced while the first did not. A test now checks
