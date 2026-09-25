@@ -10,113 +10,165 @@
 export interface LeagueEntry { id?: string; match?: { country: string; name: RegExp }; focus: string | null; pool?: string; feeds?: string; neutral?: boolean; tier?: number }
 
 const norm = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z]/g, "");
+/** Strip accents from a league name too, so /Urvalsdeild/ matches the provider's "Úrvalsdeild". */
+const deaccent = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+/**
+ * Never synced, whatever an entry matches. Several entries are deliberately prefix matches, because
+ * a third tier is often split into groups ("Serie C - Girone A", "Primera División RFEF - Group 2")
+ * and each group is a real competition with its own table. That same looseness would otherwise drag
+ * in the women's, youth, reserve and play-off competitions sitting next to them under the same name
+ * ("Primera División Femenina", "Liga 1 Feminin", "Serie C - Promotion - Play-offs").
+ */
+const NEVER = /women|femen|femin|frauen|dames|\bu1[5-9]\b|\bu2[0-3]\b|youth|junior|primavera|reserve|academy|play-?offs?|promotion round|relegation round/i;
+
 /** Match a provider league to an allowlist entry: by id, or by country + name (so plan-specific ids don't matter). */
 export function entryFor(allow: LeagueEntry[], l: { externalId: string; name: string; country?: string | null }): LeagueEntry | undefined {
-  return allow.find((a) => a.id === l.externalId)
-    ?? allow.find((a) => a.match && norm(a.match.country) === norm(l.country ?? "") && a.match.name.test(l.name.trim()));
+  const byId = allow.find((a) => a.id === l.externalId);
+  if (byId) return byId;                       // an explicit id is always honoured
+  if (NEVER.test(l.name)) return undefined;
+  const name = deaccent(l.name.trim());
+  return allow.find((a) => a.match && norm(a.match.country) === norm(l.country ?? "") && a.match.name.test(name));
 }
 
 /** Top flights matched by country + name on API-Football (any plan that includes them). Europe feeds the club-strength pool. */
 const EU = (country: string, name: RegExp, focus: string | null = "europe-other", extra: Partial<LeagueEntry> = {}): LeagueEntry => ({ match: { country, name }, focus, feeds: "europe", ...extra });
 const WORLD = (country: string, name: RegExp, focus: string | null, extra: Partial<LeagueEntry> = {}): LeagueEntry => ({ match: { country, name }, focus, ...extra });
 export const MORE_API_FOOTBALL: LeagueEntry[] = [
-  // --- Europe: top flights, plus second and third tiers where the country has them ---
-  // Tiers matter twice over: a promoted or relegated club carries a prior from the division it
-  // came from, and lower-tier results feed the same cross-league club-strength pool.
+  /*
+   * Every name below is the spelling API-Football actually returns, taken from a live plan's
+   * competition list (`npm run leaguecheck` prints it). Entries without a trailing `$` are prefix
+   * matches, used where a tier is split into groups that are each a real competition with its own
+   * table; the NEVER guard above keeps the women's, youth and play-off namesakes out.
+   *
+   * Grouped third tiers with many parallel divisions are deliberately left out — Spain's Primera
+   * División RFEF (5 groups), Greece's Gamma Ethniki (10), Romania's Liga III (10), Hungary's NB III,
+   * Bulgaria's Third League, Italy's Serie D and Germany's Regionalliga/Oberliga. Each would add ten
+   * or more competitions to every sync for very thin betting interest. Say the word and they go in.
+   */
+
+  // ─── England ───
   EU("England", /^National League$/i, "england", { tier: 5 }),
-  EU("Spain", /^Primera Divisi(o|ó)n RFEF$|^Primera Federaci(o|ó)n$/i, null, { tier: 3 }),
-  EU("Italy", /^Serie C$/i, null, { tier: 3 }),
+
+  // ─── Big five: third tiers ───
+  EU("Italy", /^Serie C/i, null, { tier: 3 }),          // three girones
   EU("Germany", /^3\. Liga$/i, null, { tier: 3 }),
-  EU("France", /^National 1$|^National$/i, null, { tier: 3 }),
+  EU("France", /^Ligue 3$/i, null, { tier: 3 }),
   EU("Netherlands", /^Eerste Divisie$/i, "europe-other", { tier: 2 }),
   EU("Netherlands", /^Tweede Divisie$/i, "europe-other", { tier: 3 }),
-  EU("Portugal", /^Liga Portugal 2$|^Segunda Liga$/i, "europe-other", { tier: 2 }),
+  EU("Portugal", /^(Liga Portugal 2|Segunda Liga)$/i, "europe-other", { tier: 2 }),
   EU("Portugal", /^Liga 3$/i, "europe-other", { tier: 3 }),
 
-  EU("Scotland", /^Premiership$/i), EU("Scotland", /^Championship$/i, "europe-other", { tier: 2 }),
+  // ─── Europe: top flights, second tiers, and third tiers where they are not split ten ways ───
+  EU("Scotland", /^Championship$/i, "europe-other", { tier: 2 }),
   EU("Scotland", /^League One$/i, "europe-other", { tier: 3 }),
-  EU("Belgium", /^Jupiler Pro League$|^First Division A$|^Pro League$/i),
-  EU("Belgium", /^Challenger Pro League$|^First Division B$/i, "europe-other", { tier: 2 }),
-  EU("Turkey", /^S(u|ü)per Lig$/i), EU("Turkey", /^1\. Lig$/i, "europe-other", { tier: 2 }), EU("Turkey", /^2\. Lig$/i, "europe-other", { tier: 3 }),
-  EU("Greece", /^Super League 1?$/i), EU("Greece", /^Super League 2$/i, "europe-other", { tier: 2 }),
-  EU("Switzerland", /^Super League$/i), EU("Switzerland", /^Challenge League$/i, "europe-other", { tier: 2 }),
-  EU("Austria", /^Bundesliga$/i), EU("Austria", /^2\. Liga$/i, "europe-other", { tier: 2 }),
-  EU("Denmark", /^Superliga$/i), EU("Denmark", /^1\. Division$/i, "europe-other", { tier: 2 }), EU("Denmark", /^2nd Division$|^2\. Division$/i, "europe-other", { tier: 3 }),
-  EU("Norway", /^Eliteserien$/i), EU("Norway", /^1\. Division$/i, "europe-other", { tier: 2 }), EU("Norway", /^2\. Division$/i, "europe-other", { tier: 3 }),
-  EU("Sweden", /^Allsvenskan$/i), EU("Sweden", /^Superettan$/i, "europe-other", { tier: 2 }), EU("Sweden", /^Division 1/i, "europe-other", { tier: 3 }),
-  EU("Finland", /^Ykk(o|ö)sliiga$|^Ykk(o|ö)nen$/i, "europe-other", { tier: 2 }), EU("Finland", /^Veikkausliiga$/i), EU("Finland", /^Kakkonen$/i, "europe-other", { tier: 3 }),
+  EU("Scotland", /^League Two$/i, "europe-other", { tier: 4 }),
+  EU("Belgium", /^Challenger Pro League$/i, "europe-other", { tier: 2 }),
+  EU("Turkey", /^1\. Lig$/i, "europe-other", { tier: 2 }), EU("Turkey", /^2\. Lig$/i, "europe-other", { tier: 3 }),
+  EU("Greece", /^Super League 2$/i, "europe-other", { tier: 2 }),
+  EU("Switzerland", /^Challenge League$/i, "europe-other", { tier: 2 }),
+  EU("Austria", /^2\. Liga$/i, "europe-other", { tier: 2 }),
+  EU("Denmark", /^1\. Division$/i, "europe-other", { tier: 2 }), EU("Denmark", /^2\. Division$/i, "europe-other", { tier: 3 }),
+  EU("Norway", /^1\. Division$/i, "europe-other", { tier: 2 }), EU("Norway", /^2\. Division/i, "europe-other", { tier: 3 }),
+  EU("Sweden", /^Superettan$/i, "europe-other", { tier: 2 }), EU("Sweden", /^Ettan/i, "europe-other", { tier: 3 }),
+  EU("Finland", /^Veikkausliiga$/i), EU("Finland", /^Ykk(o|ö)sliiga$|^Ykk(o|ö)nen$/i, "europe-other", { tier: 2 }),
+  EU("Finland", /^Kakkonen/i, "europe-other", { tier: 3 }),
   EU("Iceland", /^(Besta deild karla|Urvalsdeild)$/i), EU("Iceland", /^1\. Deild$/i, "europe-other", { tier: 2 }),
-  EU("Poland", /^Ekstraklasa$/i), EU("Poland", /^I Liga$|^1 Liga$/i, "europe-other", { tier: 2 }), EU("Poland", /^II Liga$|^2 Liga$/i, "europe-other", { tier: 3 }),
-  EU("Czech-Republic", /^1\. Liga$|^Fortuna Liga$|^Czech Liga$/i), EU("Czech-Republic", /^FNL$|^2\. Liga$/i, "europe-other", { tier: 2 }),
-  EU("Slovakia", /^Super Lig(a|ue)$|^Nike Liga$/i), EU("Slovakia", /^2\. Liga$/i, "europe-other", { tier: 2 }),
+  EU("Poland", /^Ekstraklasa$/i), EU("Poland", /^I Liga$/i, "europe-other", { tier: 2 }), EU("Poland", /^II Liga/i, "europe-other", { tier: 3 }),
+  EU("Czech-Republic", /^(Czech Liga|1\. Liga|Fortuna Liga)$/i), EU("Czech-Republic", /^FNL$/i, "europe-other", { tier: 2 }),
+  EU("Czech-Republic", /^3\. liga/i, "europe-other", { tier: 3 }),
+  EU("Slovakia", /^(Super Liga|Nike Liga)$/i), EU("Slovakia", /^2\. liga$/i, "europe-other", { tier: 2 }),
   EU("Hungary", /^NB I$/i), EU("Hungary", /^NB II$/i, "europe-other", { tier: 2 }),
-  EU("Romania", /^Liga I$/i), EU("Romania", /^Liga II$/i, "europe-other", { tier: 2 }), EU("Romania", /^Liga III$/i, "europe-other", { tier: 3 }),
-  EU("Bulgaria", /^First League$|^Parva Liga$/i), EU("Bulgaria", /^Second League$/i, "europe-other", { tier: 2 }),
-  EU("Croatia", /^HNL$|^1\. HNL$/i), EU("Croatia", /^First NL$|^2\. HNL$/i, "europe-other", { tier: 2 }),
-  EU("Serbia", /^Super Liga$/i), EU("Serbia", /^First League$/i, "europe-other", { tier: 2 }),
+  EU("Romania", /^Liga I$/i), EU("Romania", /^Liga II$/i, "europe-other", { tier: 2 }),
+  EU("Bulgaria", /^First League$/i), EU("Bulgaria", /^Second League$/i, "europe-other", { tier: 2 }),
+  EU("Croatia", /^HNL$/i), EU("Croatia", /^First NL$/i, "europe-other", { tier: 2 }), EU("Croatia", /^Second NL$/i, "europe-other", { tier: 3 }),
+  EU("Serbia", /^Super Liga$/i), EU("Serbia", /^Prva Liga$/i, "europe-other", { tier: 2 }),
   EU("Slovenia", /^1\. SNL$/i), EU("Slovenia", /^2\. SNL$/i, "europe-other", { tier: 2 }),
-  EU("Ukraine", /^Premier League$/i), EU("Ukraine", /^Persha Liga$|^First League$/i, "europe-other", { tier: 2 }),
-  EU("Russia", /^Premier League$/i), EU("Russia", /^FNL$|^First League$/i, "europe-other", { tier: 2 }),
+  EU("Ukraine", /^Premier League$/i), EU("Ukraine", /^Persha Liga$/i, "europe-other", { tier: 2 }),
+  EU("Russia", /^Premier League$/i), EU("Russia", /^First League$/i, "europe-other", { tier: 2 }),
   EU("Cyprus", /^1\. Division$/i), EU("Cyprus", /^2\. Division$/i, "europe-other", { tier: 2 }),
   EU("Israel", /^Ligat Ha'?al$/i), EU("Israel", /^Liga Leumit$/i, "europe-other", { tier: 2 }),
   EU("Ireland", /^Premier Division$/i), EU("Ireland", /^First Division$/i, "europe-other", { tier: 2 }),
-  EU("Bosnia-and-Herzegovina", /^Premijer Liga$/i), EU("Bosnia-and-Herzegovina", /^First League of RS$|^First League FBiH$/i, "europe-other", { tier: 2 }),
-  // Smaller European leagues: one strong side often carries the country, so ratings settle fast.
-  EU("Estonia", /^Meistriliiga$/i), EU("Estonia", /^Esiliiga$/i, "europe-other", { tier: 2 }),
-  EU("Latvia", /^Virsl(i|ī)ga$/i), EU("Lithuania", /^A Lyga$/i),
-  EU("Albania", /^Superliga$/i), EU("North-Macedonia", /^1\. MFL$/i), EU("Montenegro", /^First League$/i),
-  EU("Malta", /^Premier League$/i), EU("Luxembourg", /^National Division$/i),
-  EU("Wales", /^Premier League$|^Cymru Premier$/i), EU("Northern-Ireland", /^Premiership$/i),
-  EU("Georgia", /^Erovnuli Liga$/i), EU("Armenia", /^Premier League$/i), EU("Azerbaijan", /^Premier League$/i),
-  EU("Belarus", /^Premier League$/i), EU("Moldova", /^Super Liga$|^Divizia Nationala$/i),
-  EU("Kazakhstan", /^Premier League$/i),
+  EU("Bosnia", /^Premijer Liga$/i), EU("Bosnia", /^1st League/i, "europe-other", { tier: 2 }),
+  EU("Estonia", /^Meistriliiga$/i), EU("Estonia", /^Esiliiga/i, "europe-other", { tier: 2 }),
+  EU("Latvia", /^Virsliga$/i), EU("Latvia", /^1\. Liga$/i, "europe-other", { tier: 2 }),
+  EU("Lithuania", /^A Lyga$/i), EU("Lithuania", /^1 Lyga$/i, "europe-other", { tier: 2 }),
+  EU("Albania", /^Superliga$/i), EU("Albania", /^1st Division$/i, "europe-other", { tier: 2 }),
+  EU("Macedonia", /^First League$/i), EU("Macedonia", /^Second League$/i, "europe-other", { tier: 2 }),
+  EU("Montenegro", /^First League$/i), EU("Montenegro", /^Second League$/i, "europe-other", { tier: 2 }),
+  EU("Kosovo", /^Superliga$/i), EU("Kosovo", /^Liga E Pare$/i, "europe-other", { tier: 2 }),
+  EU("Malta", /^Premier League$/i), EU("Malta", /^Challenge League$/i, "europe-other", { tier: 2 }),
+  EU("Luxembourg", /^National Division$/i),
+  EU("Wales", /^Premier League$/i), EU("Wales", /^FAW Championship$/i, "europe-other", { tier: 2 }),
+  EU("Northern-Ireland", /^Premiership$/i), EU("Northern-Ireland", /^Championship$/i, "europe-other", { tier: 2 }),
+  EU("Faroe-Islands", /^Meistaradeildin$/i), EU("Faroe-Islands", /^1\. Deild$/i, "europe-other", { tier: 2 }),
+  EU("Georgia", /^Erovnuli Liga$/i), EU("Georgia", /^Erovnuli Liga 2$/i, "europe-other", { tier: 2 }),
+  EU("Armenia", /^Premier League$/i), EU("Armenia", /^First League$/i, "europe-other", { tier: 2 }),
+  EU("Azerbaijan", /^Premyer Liqa$/i), EU("Belarus", /^Premier League$/i), EU("Belarus", /^1\. Division$/i, "europe-other", { tier: 2 }),
+  EU("Moldova", /^Super Liga$/i), EU("Moldova", /^Liga 1$/i, "europe-other", { tier: 2 }),
+  EU("Kazakhstan", /^Premier League$/i), EU("Kazakhstan", /^1\. Division$/i, "europe-other", { tier: 2 }),
 
-  // --- Americas ---
-  WORLD("Brazil", /^Serie A$/i, "americas"), WORLD("Brazil", /^Serie B$/i, "americas", { tier: 2 }), WORLD("Brazil", /^Serie C$/i, "americas", { tier: 3 }),
-  WORLD("Argentina", /^Liga Profesional Argentina$|^Primera Divisi(o|ó)n$/i, "americas"),
-  WORLD("Argentina", /^Primera Nacional$/i, "americas", { tier: 2 }), WORLD("Argentina", /^Primera B Metropolitana$/i, "americas", { tier: 3 }),
-  WORLD("Uruguay", /^Primera Divisi(o|ó)n$/i, "americas"), WORLD("Uruguay", /^Segunda Divisi(o|ó)n$/i, "americas", { tier: 2 }),
-  WORLD("Ecuador", /^Liga Pro$/i, "americas"), WORLD("Ecuador", /^Liga Pro Serie B$|^Serie B$/i, "americas", { tier: 2 }),
-  WORLD("Chile", /^Primera Divisi(o|ó)n$/i, "americas"), WORLD("Chile", /^Primera B$/i, "americas", { tier: 2 }),
+  // ─── Americas ───
+  WORLD("Brazil", /^Serie B$/i, "americas", { tier: 2 }), WORLD("Brazil", /^Serie C$/i, "americas", { tier: 3 }),
+  WORLD("Argentina", /^Primera Nacional$/i, "americas", { tier: 2 }),
+  WORLD("Argentina", /^Primera B Metropolitana$/i, "americas", { tier: 3 }),
+  WORLD("Uruguay", /^Primera Division$/i, "americas"), WORLD("Uruguay", /^Segunda Division$/i, "americas", { tier: 2 }),
+  WORLD("Ecuador", /^Liga Pro$/i, "americas"), WORLD("Ecuador", /^Liga Pro Serie B$/i, "americas", { tier: 2 }),
+  WORLD("Chile", /^Primera Division$/i, "americas"), WORLD("Chile", /^Primera B$/i, "americas", { tier: 2 }),
   WORLD("Colombia", /^Primera A$/i, "americas"), WORLD("Colombia", /^Primera B$/i, "americas", { tier: 2 }),
-  WORLD("Peru", /^Liga 1$/i, "americas"), WORLD("Peru", /^Liga 2$/i, "americas", { tier: 2 }),
-  WORLD("Paraguay", /^Division Profesional$/i, "americas"), WORLD("Paraguay", /^Division Intermedia$/i, "americas", { tier: 2 }),
-  WORLD("Bolivia", /^Primera Divisi(o|ó)n$/i, "americas"), WORLD("Venezuela", /^Primera Divisi(o|ó)n$/i, "americas"),
-  WORLD("Mexico", /^Liga MX$/i, "americas"), WORLD("Mexico", /^Liga de Expansi(o|ó)n MX$/i, "americas", { tier: 2 }),
-  WORLD("USA", /^Major League Soccer$/i, "americas"), WORLD("USA", /^USL Championship$/i, "americas", { tier: 2 }),
-  WORLD("USA", /^MLS Next Pro$|^USL League One$/i, "americas", { tier: 3 }),
+  WORLD("Peru", /^Primera Division$/i, "americas"), WORLD("Peru", /^Segunda Division$/i, "americas", { tier: 2 }),
+  WORLD("Paraguay", /^Division Profesional/i, "americas"), WORLD("Paraguay", /^Division Intermedia$/i, "americas", { tier: 2 }),
+  WORLD("Bolivia", /^Primera Division$/i, "americas"), WORLD("Bolivia", /^Nacional B$/i, "americas", { tier: 2 }),
+  WORLD("Venezuela", /^Primera Division$/i, "americas"), WORLD("Venezuela", /^Segunda Division$/i, "americas", { tier: 2 }),
+  WORLD("Mexico", /^Liga de Expansion MX$/i, "americas", { tier: 2 }),
+  WORLD("USA", /^USL Championship$/i, "americas", { tier: 2 }), WORLD("USA", /^(MLS Next Pro|USL League One)$/i, "americas", { tier: 3 }),
   WORLD("Canada", /^Canadian Premier League$/i, "americas"),
-  WORLD("Costa-Rica", /^Primera Divisi(o|ó)n$/i, "americas"), WORLD("Honduras", /^Liga Nacional$/i, "americas"),
-  WORLD("Guatemala", /^Liga Nacional$/i, "americas"), WORLD("Panama", /^LPF$/i, "americas"),
-  WORLD("World", /^Copa Libertadores$/i, "americas"), WORLD("World", /^Copa Sudamericana$/i, "americas"),
+  WORLD("Costa-Rica", /^Primera Division$/i, "americas"), WORLD("Costa-Rica", /^Liga de Ascenso$/i, "americas", { tier: 2 }),
+  WORLD("Honduras", /^Liga Nacional$/i, "americas"), WORLD("Guatemala", /^Liga Nacional$/i, "americas"),
+  WORLD("Panama", /^Liga Panamena de Futbol$/i, "americas"),
+  WORLD("El-Salvador", /^Primera Division$/i, "americas"), WORLD("Nicaragua", /^Primera Division$/i, "americas"),
+  WORLD("Dominican-Republic", /^Liga Mayor$/i, "americas"), WORLD("Jamaica", /^Premier League$/i, "americas"),
+  WORLD("Trinidad-And-Tobago", /^Pro League$/i, "americas"),
 
-  // --- Asia & Oceania ---
-  WORLD("Saudi-Arabia", /^Pro League$/i, "asia"), WORLD("Saudi-Arabia", /^Division 1$/i, "asia", { tier: 2 }),
-  WORLD("United-Arab-Emirates", /^Pro League$/i, "asia"), WORLD("Qatar", /^Stars League$/i, "asia"),
-  WORLD("Bahrain", /^Premier League$/i, "asia"), WORLD("Kuwait", /^Premier League$/i, "asia"), WORLD("Oman", /^Professional League$/i, "asia"),
-  WORLD("Jordan", /^Premier League$/i, "asia"), WORLD("Iran", /^Persian Gulf Pro League$/i, "asia"),
-  WORLD("Iraq", /^Stars League$|^Premier League$/i, "asia"), WORLD("Uzbekistan", /^Super League$/i, "asia"),
-  WORLD("Japan", /^J1 League$/i, "asia"), WORLD("Japan", /^J2 League$/i, "asia", { tier: 2 }), WORLD("Japan", /^J3 League$/i, "asia", { tier: 3 }),
-  WORLD("South-Korea", /^K League 1$/i, "asia"), WORLD("South-Korea", /^K League 2$/i, "asia", { tier: 2 }),
-  WORLD("China", /^Super League$/i, "asia"), WORLD("China", /^League One$/i, "asia", { tier: 2 }),
-  WORLD("Australia", /^A-League$|^A-League Men$/i, "asia"), WORLD("New-Zealand", /^National League$/i, "asia"),
+  // ─── Asia & Oceania ───
+  WORLD("Saudi-Arabia", /^Division 1$/i, "asia", { tier: 2 }),
+  WORLD("United-Arab-Emirates", /^Pro League$/i, "asia"), WORLD("United-Arab-Emirates", /^Division 1$/i, "asia", { tier: 2 }),
+  WORLD("Qatar", /^Stars League$/i, "asia"), WORLD("Qatar", /^Second Division$/i, "asia", { tier: 2 }),
+  WORLD("Bahrain", /^Premier League$/i, "asia"), WORLD("Kuwait", /^Premier League$/i, "asia"), WORLD("Kuwait", /^Division 1$/i, "asia", { tier: 2 }),
+  WORLD("Oman", /^Professional League$/i, "asia"), WORLD("Jordan", /^League$/i, "asia"),
+  WORLD("Iran", /^Persian Gulf Pro League$/i, "asia"), WORLD("Iran", /^Azadegan League$/i, "asia", { tier: 2 }),
+  WORLD("Iraq", /^Iraqi League$/i, "asia"), WORLD("Uzbekistan", /^Super League$/i, "asia"), WORLD("Uzbekistan", /^Pro League A$/i, "asia", { tier: 2 }),
+  WORLD("Japan", /^J2 League$/i, "asia", { tier: 2 }), WORLD("Japan", /^J3 League$/i, "asia", { tier: 3 }),
+  WORLD("South-Korea", /^K League 2$/i, "asia", { tier: 2 }), WORLD("South-Korea", /^K3 League$/i, "asia", { tier: 3 }),
+  WORLD("China", /^Super League$/i, "asia"), WORLD("China", /^League One$/i, "asia", { tier: 2 }), WORLD("China", /^League Two$/i, "asia", { tier: 3 }),
+  WORLD("Australia", /^A-League$/i, "asia"), WORLD("New-Zealand", /^National League - National$/i, "asia"),
   WORLD("India", /^Indian Super League$/i, "asia"), WORLD("India", /^I-League$/i, "asia", { tier: 2 }),
   WORLD("Thailand", /^Thai League 1$/i, "asia"), WORLD("Thailand", /^Thai League 2$/i, "asia", { tier: 2 }),
-  WORLD("Vietnam", /^V\.League 1$/i, "asia"), WORLD("Indonesia", /^Liga 1$/i, "asia"), WORLD("Malaysia", /^Super League$/i, "asia"),
+  WORLD("Vietnam", /^V\.League 1$/i, "asia"), WORLD("Vietnam", /^V\.League 2$/i, "asia", { tier: 2 }),
+  WORLD("Indonesia", /^Liga 1$/i, "asia"), WORLD("Indonesia", /^Liga 2$/i, "asia", { tier: 2 }),
+  WORLD("Malaysia", /^Super League$/i, "asia"), WORLD("Malaysia", /^Premier League$/i, "asia", { tier: 2 }),
+  WORLD("Singapore", /^Premier League$/i, "asia"), WORLD("Hong-Kong", /^Premier League$/i, "asia"),
+  WORLD("Chinese-Taipei", /^Taiwan Football Premier League$/i, "asia"),
 
-  // --- Africa ---
-  WORLD("Egypt", /^Premier League$/i, "africa"), WORLD("Egypt", /^Division 2/i, "africa", { tier: 2 }),
+  // ─── Africa ───
+  WORLD("Egypt", /^Second League$/i, "africa", { tier: 2 }),
   WORLD("Morocco", /^Botola Pro$/i, "africa"), WORLD("Morocco", /^Botola 2$/i, "africa", { tier: 2 }),
   WORLD("Algeria", /^Ligue 1$/i, "africa"), WORLD("Algeria", /^Ligue 2$/i, "africa", { tier: 2 }),
   WORLD("Tunisia", /^Ligue 1$/i, "africa"), WORLD("Tunisia", /^Ligue 2$/i, "africa", { tier: 2 }),
-  WORLD("South-Africa", /^Premier Soccer League$|^Betway Premiership$/i, "africa"),
-  WORLD("South-Africa", /^National First Division$|^Championship$/i, "africa", { tier: 2 }),
-  WORLD("Nigeria", /^NPFL$|^Premier League$/i, "africa"),
-  WORLD("Ghana", /^Premier League$/i, "africa"), WORLD("Kenya", /^Premier League$/i, "africa"),
-  WORLD("Zambia", /^Super League$/i, "africa"), WORLD("Tanzania", /^Ligi kuu Bara$|^Premier League$/i, "africa"),
-  WORLD("Uganda", /^Premier League$/i, "africa"), WORLD("Cameroon", /^Elite One$/i, "africa"),
-  WORLD("Ivory-Coast", /^Ligue 1$/i, "africa"), WORLD("Senegal", /^Ligue 1$/i, "africa"), WORLD("Angola", /^Girabola$/i, "africa"),
-  WORLD("World", /^CAF Champions League$/i, "africa"),
+  WORLD("South-Africa", /^1st Division$/i, "africa", { tier: 2 }),
+  WORLD("Ghana", /^Premier League$/i, "africa"), WORLD("Ghana", /^Division One League$/i, "africa", { tier: 2 }),
+  WORLD("Kenya", /^FKF Premier League$/i, "africa"), WORLD("Kenya", /^Super League$/i, "africa", { tier: 2 }),
+  WORLD("Zambia", /^Super League$/i, "africa"), WORLD("Tanzania", /^Ligi kuu Bara$/i, "africa"),
+  WORLD("Uganda", /^Premier League$/i, "africa"), WORLD("Cameroon", /^Elite One$/i, "africa"), WORLD("Cameroon", /^Elite Two$/i, "africa", { tier: 2 }),
+  WORLD("Ivory-Coast", /^Ligue 1$/i, "africa"), WORLD("Senegal", /^Ligue 1$/i, "africa"),
+  WORLD("Angola", /^Girabola$/i, "africa"), WORLD("Burkina-Faso", /^Ligue 1$/i, "africa"),
+  WORLD("Mali", /^Premiere Division$/i, "africa"), WORLD("Guinea", /^Ligue 1$/i, "africa"),
+  WORLD("Libya", /^Premier League$/i, "africa"), WORLD("Sudan", /^Sudani Premier League$/i, "africa"),
+  WORLD("Ethiopia", /^Premier League$/i, "africa"), WORLD("Rwanda", /^National Soccer League$/i, "africa"),
+  WORLD("Zimbabwe", /^Premier Soccer League$/i, "africa"), WORLD("Botswana", /^Premier League$/i, "africa"),
+  WORLD("Malawi", /^Super League$/i, "africa"), WORLD("Namibia", /^Premier League$/i, "africa"),
+  WORLD("Congo-DR", /^Ligue 1$/i, "africa"), WORLD("Togo", /^Championnat National$/i, "africa"),
+  WORLD("Benin", /^Championnat National$/i, "africa"), WORLD("Gabon", /^Championnat D1$/i, "africa"),
 ];
 
 export const LEAGUE_ALLOWLIST: Record<string, LeagueEntry[]> = {
@@ -130,6 +182,10 @@ export const LEAGUE_ALLOWLIST: Record<string, LeagueEntry[]> = {
     { id: "WC", focus: "international", pool: "intl", neutral: true }, { id: "EC", focus: "international", pool: "intl", neutral: true },
   ],
   "api-football": [
+    // Matched by country + name, so they work on any plan that includes them. This spread was
+    // missing: the list was built in 0.7.1, extended in 0.9.0 and never actually read, so none of
+    // it ever synced and only the explicit ids below did.
+    ...MORE_API_FOOTBALL,
     { id: "39", focus: "england", feeds: "europe" }, { id: "40", focus: "england", feeds: "europe", tier: 2 },
     { id: "140", focus: "europe-strong", feeds: "europe" }, { id: "135", focus: "europe-strong", feeds: "europe" }, { id: "78", focus: "europe-strong", feeds: "europe" },
     { id: "61", focus: "europe-strong", feeds: "europe" }, { id: "88", focus: null, feeds: "europe" }, { id: "94", focus: null, feeds: "europe" },

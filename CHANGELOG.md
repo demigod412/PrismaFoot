@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.9.6 — the extra leagues were never wired in
+- **Fix: `MORE_API_FOOTBALL` was dead code.** The country + name league list was written in 0.7.1,
+  extended to 166 entries in 0.9.0 — and never referenced by anything. `LEAGUE_ALLOWLIST` only ever
+  contained the 50 hand-written ids, so every competition that list was supposed to add (Finland,
+  Czechia, Romania, Poland, Croatia, Serbia, Ukraine, Russia, Israel, Ireland, Uruguay, Ecuador, Chile,
+  Colombia, Peru and the rest) has never synced on any version. It is spread in now, and a test
+  asserts every entry reaches the allowlist so this cannot recur.
+- **Names corrected against a live plan's own competition list**, which `leaguecheck` prints. Many
+  guesses were simply wrong and were being skipped in silence: Serbia's second tier is *Prva Liga* not
+  "First League"; Peru runs *Primera/Segunda División* not "Liga 1"; Panama is *Liga Penameña de
+  Fútbol* not "LPF"; Azerbaijan is *Premyer Liqa*; Iraq is *Iraqi League*; Jordan is just *League*;
+  Egypt's second tier is *Second League*; South Africa's is *1st Division*; Kenya is *FKF Premier
+  League*; France's third tier is *Ligue 3*; Sweden's is *Ettan*. API-Football also files Bosnia under
+  "Bosnia" and North Macedonia under "Macedonia", so both were unmatchable.
+- **Grouped tiers now match as a set.** A third tier is often several parallel divisions
+  ("Serie C - Girone A/B/C", "Kakkonen - Lohko A/B/C", "II Liga - East"), each a real competition with
+  its own table, so those entries match by prefix and take them all.
+- **Guard against the collateral of that.** Women's, youth, reserve and play-off competitions sit
+  beside their namesakes under the same prefix, so they are now refused outright — no
+  "Primera División Femenina", "Brasileiro U20", "Campionato Primavera" or
+  "Serie C - Promotion - Play-offs". An explicit id still bypasses the guard.
+- **League names are matched without accents**, so the entry for Iceland's *Urvalsdeild* matches the
+  provider's *Úrvalsdeild*.
+- New tiers and countries throughout: 201 entries, tiers 1–3. Deliberately excluded are the third
+  tiers split ten ways — Spain's Primera División RFEF, Greece's Gamma Ethniki, Romania's Liga III,
+  Hungary's NB III, Bulgaria's Third League, Italy's Serie D, Germany's Regionalliga and Oberliga.
+  Each would add ten or more competitions to every sync for very thin interest.
+- **Run `npm run leaguecheck` after this update.** It reports how many competitions now match, and the
+  first sync afterwards will run long while their history loads.
+
 ## 0.9.0 — fixtures as the home page, Top 50, safer Builder, many more leagues, your own timezone
 - **The fixtures board is now the landing page.** The separate "Today" screen is gone: opening the app
   puts you straight on the date strip with the league and market filters. `/fixtures` still works and

@@ -1,0 +1,69 @@
+import { describe, expect, it } from "vitest";
+import { entryFor, LEAGUE_ALLOWLIST, MORE_API_FOOTBALL } from "@/lib/leagues";
+
+const allow = LEAGUE_ALLOWLIST["api-football"];
+const match = (country: string, name: string) => entryFor(allow, { externalId: "x", name, country });
+
+/*
+ * Every name here was copied from a live API-Football plan's competition list (`npm run leaguecheck`).
+ * League matching is by country + name and a mismatch is skipped in silence, so these are the only
+ * thing standing between a typo and a league that quietly never syncs.
+ */
+describe("API-Football league allowlist", () => {
+  it("is actually wired into the allowlist", () => {
+    // It was defined in 0.7.1, extended in 0.9.0 and never referenced, so none of it synced.
+    expect(MORE_API_FOOTBALL.length).toBeGreaterThan(150);
+    for (const e of MORE_API_FOOTBALL) expect(allow).toContain(e);
+  });
+
+  it("matches the names the provider really returns", () => {
+    const real: [string, string][] = [
+      // corrected in 0.9.6 after seeing the provider's own list
+      ["Serbia", "Prva Liga"], ["Peru", "Primera División"], ["Peru", "Segunda División"],
+      ["Paraguay", "Division Profesional - Apertura"], ["Paraguay", "Division Intermedia"],
+      ["Panama", "Liga Panameña de Fútbol"], ["Azerbaijan", "Premyer Liqa"], ["Iraq", "Iraqi League"],
+      ["Jordan", "League"], ["Egypt", "Second League"], ["South-Africa", "1st Division"],
+      ["Kenya", "FKF Premier League"], ["France", "Ligue 3"], ["Sweden", "Ettan - Norra"],
+      ["Norway", "2. Division - Group 1"], ["Estonia", "Esiliiga A"], ["Finland", "Kakkonen - Lohko A"],
+      ["Poland", "II Liga - East"], ["Italy", "Serie C - Girone A"], ["Czech-Republic", "3. liga - CFL A"],
+      ["Bosnia", "Premijer Liga"], ["Bosnia", "1st League - FBiH"],
+      ["Macedonia", "First League"], ["Georgia", "Erovnuli Liga 2"], ["Bolivia", "Nacional B"],
+      ["Wales", "FAW Championship"], ["Kosovo", "Superliga"], ["Faroe-Islands", "Meistaradeildin"],
+      // accents: the provider writes "Úrvalsdeild", the entry writes "Urvalsdeild"
+      ["Iceland", "Úrvalsdeild"],
+      // already correct, kept as regression cover
+      ["Finland", "Veikkausliiga"], ["Czech-Republic", "Czech Liga"], ["Czech-Republic", "FNL"],
+      ["Romania", "Liga I"], ["Romania", "Liga II"], ["Ukraine", "Persha Liga"],
+      ["Israel", "Liga Leumit"], ["Uruguay", "Segunda División"], ["Ecuador", "Liga Pro Serie B"],
+      ["Japan", "J2 League"], ["South-Korea", "K League 2"], ["Morocco", "Botola 2"],
+      ["Argentina", "Primera Nacional"], ["Brazil", "Serie C"], ["USA", "USL Championship"],
+    ];
+    const missed = real.filter(([c, n]) => !match(c, n)).map(([c, n]) => `${c} / ${n}`);
+    expect(missed, `these would silently never sync:\n${missed.join("\n")}`).toEqual([]);
+  });
+
+  it("never syncs women's, youth, reserve or play-off competitions", () => {
+    const skip: [string, string][] = [
+      ["Spain", "Primera División Femenina"], ["Romania", "Liga 1 Feminin"], ["Mexico", "Liga MX Femenil"],
+      ["Germany", "Frauen Bundesliga"], ["England", "FA WSL"], ["Netherlands", "Eredivisie Women"],
+      ["Brazil", "Brasileiro U20 A"], ["Turkey", "U19 league"], ["Italy", "Campionato Primavera - 1"],
+      ["Belgium", "Reserve Pro League"], ["Italy", "Serie C - Promotion - Play-offs"],
+      ["Spain", "Primera División RFEF - Play Offs"], ["Finland", "Kakkonen - Play-offs"],
+      ["Netherlands", "Derde Divisie - Relegation Round"],
+    ];
+    const leaked = skip.filter(([c, n]) => match(c, n)).map(([c, n]) => `${c} / ${n}`);
+    expect(leaked, `these would be synced by mistake:\n${leaked.join("\n")}`).toEqual([]);
+  });
+
+  it("still honours an explicit id even when the name looks excluded", () => {
+    // Ids are curated by hand, so they bypass the name guard entirely.
+    expect(entryFor(allow, { externalId: "39", name: "anything at all", country: "England" })).toBeTruthy();
+  });
+
+  it("does not confuse same-named leagues in different countries", () => {
+    expect(match("Russia", "First League")?.tier).toBe(2);
+    expect(match("Macedonia", "First League")?.tier).toBeUndefined(); // top flight
+    expect(match("Montenegro", "Second League")?.tier).toBe(2);
+    expect(match("Nowhere", "First League")).toBeUndefined();
+  });
+});
