@@ -4,6 +4,8 @@ import { dataMode } from "@/lib/mode";
 import { getBoard } from "@/lib/queries";
 import { allMarkets, GROUP_LABEL, marketHit, type MarketKey } from "@/lib/markets";
 import { buildSlips, legHint, oneInN, SAFE_MAX_LEG_ODDS, type Candidate } from "@/lib/builder";
+import { getSetting } from "@/lib/secrets";
+import { trustFor, type MarketTrust, TRUST_SETTING } from "@/lib/trust";
 
 import { FIXTURE_WINDOW_DAYS } from "@/lib/window";
 import { dayKeyIn, dayStart, fmtIn } from "@/lib/time";
@@ -19,7 +21,7 @@ const DAY = 86_400_000;
 const TARGETS = [3, 5, 10, 30, 100];
 const WINDOWS: [number, string][] = [[1, "Today"], [2, "Next 2 days"], [3, "Next 3 days"], [7, "This week"], [14, "Next 14 days"]];
 
-export default async function Builder({ searchParams }: { searchParams: Promise<{ target?: string; days?: string; mode?: string; legs?: string; min?: string; even?: string }> }) {
+export default async function Builder({ searchParams }: { searchParams: Promise<{ target?: string; days?: string; mode?: string; legs?: string; min?: string; even?: string; conf?: string }> }) {
   const sp = await searchParams;
   const target = Math.min(1000, Math.max(1.2, Number(sp.target) || 5));
   const days = WINDOWS.some(([d]) => d === Number(sp.days)) ? Number(sp.days) : 2;
@@ -29,13 +31,17 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
   // Even legs by default: an accumulator of six similar prices is what people mean by a six-fold,
   // not one 1.60 propped up by five near-certainties. "even=0" opts out.
   const evenLegs = sp.even !== "0";
-  const href = (o: Partial<{ target: number; days: number; mode: string; legs: number; min: number; even: boolean }>) =>
-    `/builder?target=${o.target ?? target}&days=${o.days ?? days}&mode=${o.mode ?? mode}&legs=${o.legs ?? maxLegs}&min=${o.min ?? minLegs}&even=${(o.even ?? evenLegs) ? 1 : 0}`;
+  // High confidence only: fewer candidates, but every leg is one the model is most sure of.
+  const highOnly = sp.conf === "high";
+  const href = (o: Partial<{ target: number; days: number; mode: string; legs: number; min: number; even: boolean; conf: string }>) =>
+    `/builder?target=${o.target ?? target}&days=${o.days ?? days}&mode=${o.mode ?? mode}&legs=${o.legs ?? maxLegs}&min=${o.min ?? minLegs}&even=${(o.even ?? evenLegs) ? 1 : 0}&conf=${o.conf ?? (highOnly ? "high" : "any")}`;
 
   // The cap applies when the user has actually chosen Safest. With no bookmaker odds the toggle is
   // hidden and the search runs in safe mode anyway; capping there would silently change that view.
   const legCap = mode === "safe" ? SAFE_MAX_LEG_ODDS : undefined;
   const zone = await tz();
+  // One small stored row rather than re-reading the ledger on every target change.
+  const trust = await getSetting<MarketTrust>(TRUST_SETTING, {});
   const now = new Date();
   const fixtures = await getBoard({ from: now, to: new Date(now.getTime() + Math.min(days, FIXTURE_WINDOW_DAYS) * DAY) });
   const quotes = await prisma.oddsQuote.findMany({ where: { fixtureId: { in: fixtures.map((f) => f.id) } }, orderBy: { fetchedAt: "desc" } });
@@ -52,11 +58,13 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
       return {
         matchId: f.id, league: f.league.name, startMs: +f.kickoffUtc, match: `${H} v ${A}`, label: m.label, market: m.key,
         group: m.group, p: m.p, odds: price && price > 1.01 ? price : 1 / m.p, real: !!price, band: p.band,
+        trust: trustFor(trust, m.key),
       };
     });
   });
-  const withOdds = candidates.some((c) => c.real);
-  const slips = buildSlips(candidates, { target, maxLegs, minLegs, mode: withOdds ? mode : "safe", band: "LOW", maxLegOdds: legCap, evenLegs }, 3);
+  const pickable = highOnly ? candidates.filter((c) => c.band === "HIGH") : candidates;
+  const withOdds = pickable.some((c) => c.real);
+  const slips = buildSlips(pickable, { target, maxLegs, minLegs, mode: withOdds ? mode : "safe", band: "LOW", maxLegOdds: legCap, evenLegs }, 3);
   const hint = legHint(target);
 
   // Track record: build the same target from locked calls on each of the last 14 days and score it.
@@ -94,6 +102,8 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
           though the combined chance still follows the price you aim at.
           {withOdds ? " Bookmaker prices are used where they exist, so value legs are preferred." : " No bookmaker prices are stored, so the model's fair odds are used: the target itself sets the chance."}
           {legCap ? ` Safest never uses a leg priced above ${legCap.toFixed(2)}, so the target is reached with more, shorter picks.` : ""}
+          {" Markets are weighted by how well they have actually delivered against what they claimed, from the settled ledger."}
+          {highOnly ? " Only High-confidence calls are used." : ""}
           {evenLegs
             ? ` Even legs is on: legs are kept to a similar price — ${target.toFixed(2)} over ${Math.max(2, minLegs > 1 ? minLegs : legHint(target).min)} legs means about ${Math.pow(target, 1 / Math.max(2, minLegs > 1 ? minLegs : legHint(target).min)).toFixed(2)} each, rather than one long leg carried by near-certainties.`
             : " Even legs is off: legs may be any mix of prices that reaches the target."}
@@ -121,6 +131,8 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
           options={[1, 3, 4, 5, 6, 8, 10, 12, 15].filter((n) => n <= maxLegs).map((n) => ({ value: String(n), label: n === 1 ? "no minimum" : `at least ${n}`, href: href({ min: n }) }))} />
         <FilterSelect label="Leg prices" value={evenLegs ? "even" : "mixed"}
           options={[{ value: "even", label: "Even", href: href({ even: true }) }, { value: "mixed", label: "Any mix", href: href({ even: false }) }]} />
+        <FilterSelect label="Confidence" value={highOnly ? "high" : "any"}
+          options={[{ value: "any", label: "Medium and High", href: href({ conf: "any" }) }, { value: "high", label: "High only", href: href({ conf: "high" }) }]} />
       </div>
       {withOdds && (
         <div data-no-ptr className="mb-5 inline-flex rounded-xl border hairline p-1">

@@ -6,6 +6,8 @@ import { BottomTabs, LeftRail } from "@/components/Nav";
 import { Disclaimer } from "@/components/Disclaimer";
 import { DemoBanner } from "@/components/DemoBanner";
 import { InstallPrompt } from "@/components/InstallPrompt";
+import { RouteProgress } from "@/components/RouteProgress";
+import { Suspense } from "react";
 import { cookies, headers } from "next/headers";
 import { dataMode } from "@/lib/mode";
 import { getSetting } from "@/lib/secrets";
@@ -43,6 +45,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en" className={`${GeistSans.variable} ${mono.variable}`}>
       <body className="min-h-dvh font-sans antialiased">
+        {/* Suspense because RouteProgress reads the query string. */}
+        <Suspense fallback={null}><RouteProgress /></Suspense>
         {locked ? <UnlockScreen minutes={IDLE_MINUTES} /> : <>
         <DemoBanner demo={mode.demo} lastSync={mode.lastSync} />
         <div className="flex">

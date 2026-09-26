@@ -7,7 +7,7 @@ import { PROVIDER_ENUM, THROTTLE_MS } from "../providers/constants";
 import { entryFor, LEAGUE_ALLOWLIST, POOL_SETTINGS } from "../leagues";
 import { FIXTURE_WINDOW_DAYS } from "../window";
 import { rateAndPredictLeague } from "./predict";
-import { lockDue, refitCalibration, settle, snapshotAccuracy } from "./ledger";
+import { lockDue, refitCalibration, refreshMarketTrust, settle, snapshotAccuracy } from "./ledger";
 import { providerCalls } from "../providers/http";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -181,6 +181,7 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
       locked: await lockDue(db, new Date()),
       settled: await settle(db, provider),
       calibration: await refitCalibration(db, provider),
+      marketTrust: await refreshMarketTrust(db, provider),
       accuracyDays: await snapshotAccuracy(db, provider),
     };
     await db.syncLog.update({ where: { id: log.id }, data: { ok: true, finishedAt: new Date(), message: JSON.stringify(report).slice(0, 2000) } });

@@ -6,6 +6,8 @@ import { allMarkets } from "../markets";
 import { computeAccuracy, dailySeries, devig, tableFavourites, type ScoredCall, type Triple } from "../accuracy";
 import type { FootballProvider } from "../providers/types";
 import { LOCK_MINUTES } from "./predict";
+import { setSetting } from "../secrets";
+import { marketTrust, TRUST_SETTING } from "../trust";
 
 const DAY = 86_400_000;
 const json = (x: unknown) => JSON.parse(JSON.stringify(x)) as Prisma.InputJsonValue;
@@ -139,6 +141,20 @@ export async function refitCalibration(db: PrismaClient, provider: Provider) {
 }
 
 /** Store daily accuracy rows for the last few days (recomputed; unique per day+scope). */
+/**
+ * Recompute how much each market delivers against what it claims, and store it for the builder.
+ * Kept to six months so a market that has since been fixed is not judged on last season, and stored
+ * rather than computed per request: the builder would otherwise re-read the whole ledger on every
+ * target change.
+ */
+export async function refreshMarketTrust(db: PrismaClient, provider: Provider, days = 180) {
+  const calls = await loadScoredCalls(db, provider, days);
+  const report = computeAccuracy(calls);
+  const t = marketTrust(report.markets);
+  await setSetting(TRUST_SETTING, t);
+  return { calls: report.n, markets: Object.keys(t).length };
+}
+
 export async function snapshotAccuracy(db: PrismaClient, provider: Provider, days = 4) {
   const calls = await loadScoredCalls(db, provider, days + 1);
   const series = dailySeries(calls);
