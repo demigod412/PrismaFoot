@@ -104,11 +104,24 @@ function search(all: Candidate[], o: BuildOptions, want: number, widen: number, 
       && (!evenBand || (c.odds >= evenBand.lo - 1e-9 && c.odds <= evenBand.hi + 1e-9)))
     .map((c) => ({ ...c, trust: c.trust ?? 1 }));
   if (!pool.length) return [];
-  // Rank: value mode prefers edge per unit of price; safe mode prefers reliable probability per unit of price.
+  /*
+   * Rank: value mode prefers edge per unit of price; safe mode prefers probability per unit of price.
+   *
+   * Safe mode is log(p) / log(odds). Dividing by +price makes the metric rise with p, which is the
+   * point. It was previously divided by -price, which inverted it: given two legs at the same odds the
+   * search kept the LESS likely one, and because same-priced candidates share a price bucket the better
+   * leg was dropped before the search ever saw it. Offered p=0.82 and p=0.66 at 1.30, it built a 12.5%
+   * slip where 37.1% was available.
+   *
+   * Reaching a target is a knapsack: maximise the sum of log(p) subject to the sum of log(odds)
+   * clearing log(target), so log(p) per unit of log(odds) is the right greedy ratio. With fair odds
+   * (no bookmaker price) it is -1 for every leg, which is correct rather than broken — every leg is
+   * then equally efficient and the target alone sets the chance.
+   */
   const rank = (c: Candidate) => {
     const price = Math.log(c.odds);
     if (price <= 0) return -Infinity;
-    return cfg.mode === "value" && c.real ? (c.p * c.odds - 1) / price : Math.log(c.p * (c.trust ?? 1)) / -price;
+    return cfg.mode === "value" && c.real ? (c.p * c.odds - 1) / price : Math.log(c.p * (c.trust ?? 1)) / price;
   };
   // Build a pool that is spread across BOTH matches and price levels. Taking a plain "top N" would fill up with
   // many markets from the same few matches, and the search would run out of matches long before it reached a long target.

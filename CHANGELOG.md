@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.3 — fix: the builder was choosing the LEAST likely legs
+- **"Safest" systematically preferred the less likely of two equally priced legs.** The candidate
+  ranking divided log(p) by *minus* the price, which inverts it: both terms are negative, so the score
+  fell as probability rose. Worse, equally priced candidates share a price bucket and only one survives
+  the pool cut, so the better leg was discarded before the search ever saw it. Given a choice between
+  p=0.82 and p=0.66 at the same 1.30, the builder returned five legs of 0.66 — a **12.5%** slip where
+  **37.1%** was available on the same matches at the same price. It now divides by the price, so the
+  metric rises with probability. Tested both directions.
+  (Reaching a target is a knapsack: maximise the sum of log(p) subject to the sum of log(odds) clearing
+  log(target), which makes log(p) per unit of log(odds) the right greedy ratio. With fair odds it is
+  −1 for every leg — correct, not broken: every leg is then equally efficient and the target alone
+  sets the chance, which is why this went unnoticed until bookmaker prices were in play.)
+
 ## 0.10.2 — Min legs reaches the max-legs setting
 - The **Min legs** picker stopped at 8, so the leg counts that make a long target even were
   unreachable: 19.00 over 12 legs is about 1.28 a leg, but 12 could not be asked for. It now offers

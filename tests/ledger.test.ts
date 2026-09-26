@@ -442,3 +442,28 @@ describe("builder: even legs", () => {
     expect(legEvenness([1.6, 1.03, 1.2, 1.2, 1.2, 1.25], 3)).toBeGreaterThan(5);
   });
 });
+
+describe("builder: safest picks the likeliest legs", () => {
+  // Every match offers a likely and an unlikely leg at IDENTICAL odds, in the same market group.
+  // One leg per match is allowed, so the only question is which of the two the search takes.
+  const GROUPS = ["win", "dc", "goals", "btts", "hcp", "halves"];
+  const pool = Array.from({ length: 12 }, (_, i) => [0.82, 0.66].map((p) => ({
+    matchId: `m${i}`, league: `L${i}`, startMs: i, match: `A${i} v B${i}`,
+    label: p > 0.7 ? "likely" : "unlikely", market: `mk${p}`, group: GROUPS[i % GROUPS.length],
+    p, odds: 1.3, real: true, band: "MEDIUM",
+  }))).flat();
+
+  it("takes the high-probability leg every time, not the cheap-looking one", () => {
+    // Before the ranking fix this returned five unlikely legs: 12.5% where 37.1% was on offer.
+    const [s] = buildSlips(pool, { target: 3, maxLegs: 6, mode: "safe", minP: 0.5 });
+    expect(s).toBeTruthy();
+    expect(s.legs.every((l) => l.label === "likely"), "an unlikely leg was chosen over an equally priced likely one").toBe(true);
+    expect(s.p).toBeCloseTo(Math.pow(0.82, s.legs.length), 6);
+  });
+
+  it("prefers the higher probability at equal price in the pool ranking", () => {
+    const [s] = buildSlips(pool, { target: 5, maxLegs: 10, mode: "safe", minP: 0.5, maxPerGroup: 3 });
+    const unlikely = s.legs.filter((l) => l.label === "unlikely").length;
+    expect(unlikely).toBe(0);
+  });
+});
