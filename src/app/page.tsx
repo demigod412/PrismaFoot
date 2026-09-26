@@ -38,12 +38,32 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ d
   const market = (MARKETS.find((m) => m.slug === sp.market)?.slug ?? "all") as ScannerSlug;
   const from = dayStart(date, zone);
   const [leagues, all] = await Promise.all([getLeagues(), getBoard({ from, to: new Date(from.getTime() + 86_400_000), leagueId: sp.league })]);
-  // Empty day: point to the nearest day that has fixtures (e.g. during international breaks)
-  const nextDay = all.length ? null : await (async () => {
-    const { provider } = await dataMode();
-    const f = await prisma.fixture.findFirst({ where: { provider, kickoffUtc: { gte: new Date(from.getTime() + 86_400_000) }, ...(sp.league ? { leagueId: sp.league } : {}) }, orderBy: { kickoffUtc: "asc" }, select: { kickoffUtc: true } });
-    return f ? dayKeyIn(f.kickoffUtc, zone) : null;
+  const { provider } = await dataMode();
+  /*
+   * Nearest day that actually has fixtures for this filter, looking forward first and then back.
+   *
+   * Forward only stranded any competition whose season has ended: it has nothing ahead, so the board
+   * showed "no fixtures" with nothing to click even when hundreds of played matches were stored.
+   * Jumping backwards also switches the tab to Finished, since every match on a past day is finished
+   * and landing on an empty Upcoming tab would be the same dead end one date further on.
+   */
+  const nearest = all.length ? null : await (async () => {
+    const where = { provider, ...(sp.league ? { leagueId: sp.league } : {}) };
+    const ahead = await prisma.fixture.findFirst({
+      where: { ...where, kickoffUtc: { gte: new Date(from.getTime() + 86_400_000) } },
+      orderBy: { kickoffUtc: "asc" }, select: { kickoffUtc: true },
+    });
+    if (ahead) return { day: dayKeyIn(ahead.kickoffUtc, zone), dir: "next" as const };
+    const behind = await prisma.fixture.findFirst({
+      where: { ...where, kickoffUtc: { lt: from } },
+      orderBy: { kickoffUtc: "desc" }, select: { kickoffUtc: true },
+    });
+    return behind ? { day: dayKeyIn(behind.kickoffUtc, zone), dir: "prev" as const } : null;
   })();
+  const jump = nearest
+    ? { href: `/?date=${nearest.day}${sp.league ? `&league=${sp.league}` : ""}${nearest.dir === "prev" ? "&show=finished" : ""}`,
+        label: nearest.dir === "next" ? "Go to next match day" : "Go to the last match day" }
+    : undefined;
   // Counted before the market filter, so the tab numbers describe the day rather than the filter.
   const counts = countViews(all, now);
   const inView = all.filter((f) => fixtureView(f, now) === show);
@@ -57,6 +77,24 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ d
     const s = new URLSearchParams(Object.entries({ date, league: sp.league, market, show, ...o })
       .filter(([k, v]) => v && v !== "all" && !(k === "show" && v === "upcoming")) as [string, string][]).toString();
     return s ? `?${s}` : "";
+  };
+
+  /*
+   * Which leagues still have fixtures ahead, and when each last played. Two grouped queries for the
+   * whole provider rather than one per league, so the filter can send you somewhere with fixtures
+   * instead of somewhere empty.
+   */
+  const [aheadRows, behindRows] = await Promise.all([
+    prisma.fixture.groupBy({ by: ["leagueId"], where: { provider, kickoffUtc: { gte: now } }, _count: { _all: true } }),
+    prisma.fixture.groupBy({ by: ["leagueId"], where: { provider, kickoffUtc: { lt: now } }, _max: { kickoffUtc: true } }),
+  ]);
+  const hasAhead = new Set(aheadRows.map((r) => r.leagueId));
+  const lastPlayed = new Map(behindRows.flatMap((r) => (r._max.kickoffUtc ? [[r.leagueId, r._max.kickoffUtc] as const] : [])));
+  /** Where picking this league should take you: its own last match day once its season is over. */
+  const leagueHref = (id: string) => {
+    if (hasAhead.has(id)) return q({ league: id });                       // still playing: keep the date
+    const last = lastPlayed.get(id);
+    return last ? q({ league: id, date: dayKeyIn(last, zone), show: "finished" }) : q({ league: id });
   };
 
   return (
@@ -79,7 +117,12 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ d
       <div data-no-ptr className="mb-5 grid gap-2 sm:grid-cols-2">
         <FilterSelect label="League" value={sp.league ?? "all"}
           options={[{ value: "all", label: `All leagues (${leagues.length})`, href: `/${q({ league: undefined })}` },
-            ...leagues.map((l) => ({ value: l.id, label: l.name, group: l.country, href: `/${q({ league: l.id })}` }))]} />
+            ...leagues.map((l) => ({
+              value: l.id,
+              // Marked so a competition between seasons is obviously that, not obviously broken.
+              label: hasAhead.has(l.id) ? l.name : `${l.name} · ended`,
+              group: l.country, href: `/${leagueHref(l.id)}`,
+            }))]} />
         <FilterSelect label="Market" value={market} options={MARKETS.map((m) => ({ value: m.slug, label: m.label, group: m.group, href: `/${q({ market: m.slug })}` }))} />
       </div>
       {shown.length ? <FixtureList fixtures={shown} picks={picks} />
@@ -90,8 +133,11 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ d
             ? <EmptyState title={`No ${VIEW_LABEL[show].toLowerCase()} matches on this date`}
                 body={`This date has ${FIXTURE_VIEWS.filter((v) => counts[v] > 0).map((v) => `${counts[v]} ${VIEW_LABEL[v].toLowerCase()}`).join(" and ") || "nothing playable"}.`}
                 action={(() => { const other = FIXTURE_VIEWS.find((v) => v !== show && counts[v] > 0); return other ? { href: q({ show: other }) || "/", label: `Show ${VIEW_LABEL[other].toLowerCase()}` } : undefined; })()} />
-            : <EmptyState title="No fixtures on this date" body={nextDay ? `Next matches: ${fmtIn(dayStart(nextDay, zone), zone, "EEEE d MMMM")}. Leagues pause during international breaks.` : "No upcoming fixtures are stored for the selected leagues."}
-                action={nextDay ? { href: `/?date=${nextDay}${sp.league ? `&league=${sp.league}` : ""}`, label: "Go to next match day" } : undefined} />}
+            : <EmptyState title="No fixtures on this date"
+                body={nearest?.dir === "next" ? `Next matches: ${fmtIn(dayStart(nearest.day, zone), zone, "EEEE d MMMM")}. Leagues pause during international breaks.`
+                  : nearest?.dir === "prev" ? `Nothing scheduled ahead for this selection — its season looks finished. The last matches were on ${fmtIn(dayStart(nearest.day, zone), zone, "EEEE d MMMM")}.`
+                  : "No fixtures are stored for this selection yet. They appear after the next sync."}
+                action={jump} />}
     </PullToRefresh>
   );
 }

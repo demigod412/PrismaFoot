@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.11.1 — a competition whose season has ended is reachable again
+- **Fix: picking a league between seasons showed an empty board with nothing to click.** The "no
+  fixtures on this date" helper only ever looked **forward** for the next match day, so a competition
+  with nothing ahead produced no suggestion at all — and 0.10.0 made **Upcoming** the default tab, which
+  a finished season can never fill. With ~265 competitions on all sorts of calendars, plenty are between
+  seasons at any moment and every one of them looked broken. Found on EdgeBoard's WNBA; the same flaw
+  was here.
+- The board now finds the nearest day with fixtures **in either direction**, and jumping backwards
+  switches to the **Finished** tab, since every match on a past day is finished.
+- **The league filter now takes you somewhere with fixtures**: a competition still playing keeps the
+  selected date, one whose season is over jumps to its own last match day on the Finished tab.
+- **Competitions between seasons are labelled `· ended` in the filter**, so a quiet board reads as a
+  finished season rather than a fault. Two grouped queries for the whole provider, not one per league.
+
 ## 0.11.0 — markets earn their place; a loading bar
 - **Legs are now weighted by how well each market has actually delivered.** `Candidate.trust` existed,
   was used in the ranking and was **never once set** — always 1, so the field did nothing. The ledger

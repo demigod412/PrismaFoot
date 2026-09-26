@@ -34,7 +34,7 @@ describe("market trust from the settled ledger", () => {
 
   it("clamps: a market can be marked down hard but never promoted much", () => {
     expect(marketTrust([row("draw", 5000, 0.2, 0.9)]).draw).toBe(TRUST_FLOOR);
-    expect(marketTrust([row("win_home", 5000, 0.95, 0.6)]).win_home).toBe(TRUST_CEIL);
+    expect(marketTrust([row("home", 5000, 0.95, 0.6)]).home).toBe(TRUST_CEIL);
   });
 
   it("treats a missing or out-of-range entry as neutral", () => {
