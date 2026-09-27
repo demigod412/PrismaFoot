@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.12.0 — every market selectable, and corner odds that could never match
+
+### The Top 50 offered nine groups, not the markets
+Picking "Goals O/U" returns whichever of six goals markets is strongest per match, which is almost always
+Under 4.5 — so the commonest request there is, *"show me the strongest Over 2.5 tips"*, could not be made
+at all. The filter now lists **every market individually** as well as the groups: 26 markets across nine
+groups, in labelled sections.
+
+Two things the market-level filter changes beyond narrowing:
+
+- **Asking for a market by name overrides the standing exclusion.** Draws are kept out of the mixed list
+  because they would never be anyone's strongest tip — but someone selecting "Draw" is not asking for the
+  mixed list, and an option that is always empty is worse than no option.
+- **Asking for corners or shots shows every line.** Alternative lines are normally suppressed so one
+  fixture cannot contribute a wall of near-identical tips; the whole point of selecting corners is to see
+  the ladder.
+
+Corner and shot lines are chosen per fixture, so their keys carry the line (`corners_over@10.5`) and no
+fixed key would match one. A line selector therefore matches its base and side at **any** line, which is
+what "corners over" means when someone asks for it.
+
+A test asserts that every market `allMarkets` can produce has a filter option, so a market added later
+cannot quietly become unreachable.
+
+### Fix: corner odds could never match a corner tip
+The model moved to a per-fixture ladder whose keys carry the line, while the odds parser still filed
+corner prices under the legacy fixed key `corners_over` (8.5 by definition). A quote under that key could
+never be found for a tip on `corners_over@10.5`, so **corners never appeared in the value list at all** —
+not an empty market, an unmatchable one.
+
+The line now travels in the quote key too, at whatever line the book prices, so a tip and a price meet
+only when they are on the same line — the only time they are comparable. Quotes stored under the old key
+are still read back, but **only** for the 8.5 line; using them for any other would be pricing the wrong
+market.
+
+Total shots stays unpriced: API-Football does not offer it prematch, so shot tips have a model probability
+and no price. That is a fact about the feed, and the path is there if a quote ever arrives.
+
+### Also
+- **The value list shows up to 50**, matching the likely list. Stopping at 20 while the other showed 50
+  was an inconsistency with no reason behind it.
+- **An empty corners or shots list now says why.** Those lines are modelled from each team's
+  match-by-match history, which is only collected for competitions inside the statistics budget. "No
+  qualifying tips" was the wrong explanation for missing data, and the empty state now distinguishes them.
+- The empty state names the market you selected rather than saying "tips" generically.
+
 ## 0.11.1 — a competition whose season has ended is reachable again
 - **Fix: picking a league between seasons showed an empty board with nothing to click.** The "no
   fixtures on this date" helper only ever looked **forward** for the next match day, so a competition

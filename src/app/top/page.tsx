@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { dataMode } from "@/lib/mode";
 import { withLatestPrediction } from "@/lib/queries";
 import { selectTop, tipHit, tipsFor, TOP_N, WINDOWS, CAPS, type Tip } from "@/lib/top";
-import { GROUP_LABEL, marketHit, type MarketGroup, type MarketKey } from "@/lib/markets";
+import { GROUP_LABEL, MARKET_OPTIONS, marketHit, parseSelector, selectorLabel, type MarketGroup, type MarketKey } from "@/lib/markets";
 import { flatStakeRoi, selectTopValue, valueTips, VALUE, type ValueTip, VALUE_CEILINGS } from "@/lib/value";
 import type { QuoteMap } from "@/lib/odds";
 import { dayKeyIn, dayStart, fmtIn, fmtUtc } from "@/lib/time";
@@ -39,13 +39,14 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
   const sp = await searchParams;
   const days = WINDOWS.includes(Number(sp.days) as never) ? Number(sp.days) : 1;
   const focus = FOCUS.some(([f]) => f === sp.focus) ? sp.focus : undefined;
-  const group = GROUPS.includes(sp.market as MarketGroup) ? (sp.market as MarketGroup) : undefined;
+  // A group ("goals") or one market ("k:over25"). Unknown values fall back to no filter.
+  const sel = parseSelector(sp.market);
   const list: "likely" | "value" = sp.list === "value" ? "value" : "likely";
   const cap = VALUE_CEILINGS.includes(Number(sp.cap) as never) ? Number(sp.cap) : 2;
   const href = (o: { days?: number; focus?: string | null; market?: string | null; list?: string; cap?: number }) => {
     const q = new URLSearchParams({ days: String(o.days ?? days) });
     const f = o.focus === null ? undefined : o.focus ?? focus; if (f) q.set("focus", f);
-    const m = o.market === null ? undefined : o.market ?? group; if (m) q.set("market", m);
+    const m = o.market === null ? undefined : o.market ?? sel; if (m) q.set("market", m);
     const l = o.list ?? list; if (l === "value") q.set("list", "value");
     const c = o.cap ?? cap; if (l === "value" && c !== 2) q.set("cap", String(c));
     return `/top?${q}`;
@@ -66,7 +67,7 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
   let value: { f: (typeof fixtures)[number]; t: ValueTip }[] = [];
   let quotesAvailable = true;
   if (list === "likely") {
-    likely = selectTop(fixtures.flatMap((f) => f.predictions[0] ? [{ item: f, id: f.id, startMs: f.kickoffUtc.getTime(), tips: tipsFor(f.predictions[0], ...names(f), group) }] : []), group)
+    likely = selectTop(fixtures.flatMap((f) => f.predictions[0] ? [{ item: f, id: f.id, startMs: f.kickoffUtc.getTime(), tips: tipsFor(f.predictions[0], ...names(f), sel) }] : []), sel)
       .map(({ item, tip }) => ({ f: item, t: tip }));
   } else {
     const qs = quoteMaps(await prisma.oddsQuote.findMany({ where: { fixtureId: { in: fixtures.map((f) => f.id) } }, orderBy: { fetchedAt: "desc" } }));
@@ -74,11 +75,22 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
     value = selectTopValue(fixtures.flatMap((f) => {
       const p = f.predictions[0], q = qs.get(f.id);
       if (!p || !q) return [];
-      const tips = valueTips(p, q, ...names(f), { maxOdds: cap }).filter((t) => !group || t.group === group);
+      const tips = valueTips(p, q, ...names(f), { maxOdds: cap, market: sel });
       return [{ item: f, id: f.id, startMs: f.kickoffUtc.getTime(), tips }];
     })).map(({ item, tip }) => ({ f: item, t: tip }));
   }
   const shown = list === "likely" ? likely.length : value.length;
+  /*
+   * Corners and shots need the model's stats history, which only the competitions inside the stats
+   * budget get. Selecting them on a window of fixtures that have none produces an empty list, and
+   * "nothing qualifies" is the wrong explanation for it — the reason is that the data is not there.
+   */
+  const selGroup = sel && sel.startsWith("k:") ? MARKET_OPTIONS.find((o) => o.value === sel)?.group : (sel as MarketGroup | undefined);
+  const needsStats = selGroup === "corners" || selGroup === "shots";
+  const statsAvailable = !needsStats || fixtures.some((f) => {
+    const p = f.predictions[0]; if (!p) return false;
+    return selGroup === "corners" ? p.cornersLine != null : p.shotsLine != null;
+  });
   const nextUp = shown ? null : await prisma.fixture.findFirst({ where: { provider, status: "SCHEDULED", kickoffUtc: { gt: now }, ...(focus ? { league: { focusGroup: focus } } : {}) }, orderBy: { kickoffUtc: "asc" }, include: { league: true } });
 
   // ---------- track record: LOCKED calls only (the call as it stood 15 minutes before kickoff) ----------
@@ -98,11 +110,11 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
     const res = (f: (typeof fs)[number]) => ({ h: f.homeGoals!, a: f.awayGoals!, hc: f.homeCorners, ac: f.awayCorners, hs: f.homeShots, as: f.awayShots, hh: f.htHome, ha: f.htAway });
     const lines = (f: (typeof fs)[number]) => ({ corners: f.predictions[0].cornersLine, shots: f.predictions[0].shotsLine });
     if (list === "likely") {
-      const scored = selectTop(fs.map((f) => ({ item: f, id: f.id, startMs: f.kickoffUtc.getTime(), tips: tipsFor(f.predictions[0], f.homeTeam.name, f.awayTeam.name, group) })), group)
+      const scored = selectTop(fs.map((f) => ({ item: f, id: f.id, startMs: f.kickoffUtc.getTime(), tips: tipsFor(f.predictions[0], f.homeTeam.name, f.awayTeam.name, sel) })), sel)
         .map(({ item, tip }) => ({ tip, hit: tipHit(tip.key, item.homeGoals!, item.awayGoals!, res(item), lines(item)) })).filter((x) => x.hit != null);
       return { day, n: scored.length, hits: scored.filter((x) => x.hit).length, avgP: scored.reduce((s, x) => s + x.tip.p, 0) / (scored.length || 1) };
     }
-    const picks = selectTopValue(fs.flatMap((f) => { const q = pastQuotes.get(f.id); return q ? [{ item: f, id: f.id, startMs: f.kickoffUtc.getTime(), tips: valueTips(f.predictions[0], q, f.homeTeam.name, f.awayTeam.name, { maxOdds: cap }).filter((t) => !group || t.group === group) }] : []; }))
+    const picks = selectTopValue(fs.flatMap((f) => { const q = pastQuotes.get(f.id); return q ? [{ item: f, id: f.id, startMs: f.kickoffUtc.getTime(), tips: valueTips(f.predictions[0], q, f.homeTeam.name, f.awayTeam.name, { maxOdds: cap, market: sel }) }] : []; }))
       .map(({ item, tip }) => ({ tip, hit: marketHit(tip.key, res(item), lines(item)) })).filter((x) => x.hit != null);
     const roi = flatStakeRoi(picks.map((x) => ({ odds: x.tip.odds, hit: !!x.hit })));
     return { day, n: roi.n, hits: roi.hits, avgP: picks.reduce((s, x) => s + x.tip.p, 0) / (picks.length || 1), profit: roi.profit };
@@ -155,15 +167,26 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
       </nav>
       <div data-no-ptr className="mb-4 grid gap-2 sm:grid-cols-2">
         <FilterSelect label="Competitions" value={focus ?? "all"} options={FOCUS.map(([f, label]) => ({ value: f ?? "all", label, href: href({ focus: f ?? null }) }))} />
-        <FilterSelect label="Market" value={group ?? "all"}
-          options={[{ value: "all", label: "All markets", href: href({ market: null }) }, ...GROUPS.map((g) => ({ value: g, label: GROUP_LABEL[g], href: href({ market: g }) }))]} />
+        {/*
+          Groups and individual markets both. Offering only the nine groups meant the commonest request
+          — "the strongest Over 2.5 tips" — could not be made: picking "Goals O/U" returns whichever of
+          six goals markets is strongest per match, which is nearly always Under 4.5.
+        */}
+        <FilterSelect label="Market" value={sel ?? "all"}
+          options={[
+            { value: "all", label: "All markets", href: href({ market: null }) },
+            ...GROUPS.map((g) => ({ value: g, label: `${GROUP_LABEL[g]} — strongest`, href: href({ market: g }), group: "Any market in a group" })),
+            ...MARKET_OPTIONS.map((o) => ({ value: o.value, label: o.label, href: href({ market: o.value }), group: GROUP_LABEL[o.group] })),
+          ]} />
       </div>
       
 
       {shown === 0 ? (
-        <EmptyState title={list === "value" && !quotesAvailable ? "No bookmaker odds yet" : `No qualifying tips ${days === 1 ? "left today" : "in this window"}`}
+        <EmptyState title={list === "value" && !quotesAvailable ? "No bookmaker odds yet" : !statsAvailable ? `No ${selGroup === "corners" ? "corner" : "shot"} data in this window` : `No qualifying ${selectorLabel(sel).toLowerCase()} tips ${days === 1 ? "left today" : "in this window"}`}
           body={list === "value" && !quotesAvailable
             ? "The value list compares model probabilities with bookmaker odds, which come from API-Football. With football-data.org there are no odds, so this list stays empty."
+            : !statsAvailable
+            ? `${selGroup === "corners" ? "Corner" : "Shot"} lines are modelled from each team's match-by-match ${selGroup === "corners" ? "corner" : "shot"} history, and that history is only collected for the competitions inside the statistics budget. No fixture in this window has it, so there is nothing to rank — this is missing data, not a shortage of qualifying tips.`
             : nextUp && nextUp.kickoffUtc.getTime() > end.getTime()
               ? `No matches are scheduled in this window. The next one is ${nextUp.league.name} on ${fmtIn(nextUp.kickoffUtc, zone, "EEE d MMM")}.`
               : "No upcoming match in this window qualifies yet. Try a longer window."}

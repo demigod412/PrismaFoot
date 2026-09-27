@@ -51,7 +51,9 @@ describe("odds + value", () => {
     expect(apiFootballKey("Goals Over/Under", "Under 3.5")).toBe("under35");
     expect(apiFootballKey("Goals Over/Under", "Over 5.5")).toBeNull();
     expect(apiFootballKey("Asian Handicap", "Away -1.5")).toBe("away_by2");
-    expect(apiFootballKey("Corners Over Under", "Over 8.5")).toBe("corners_over");
+    // The line travels in the key now: a quote under the old fixed key could never be found for a
+    // tip on "corners_over@10.5", so corners never reached the value list at all.
+    expect(apiFootballKey("Corners Over Under", "Over 8.5")).toBe("corners_over@8.5");
   });
   it("takes the median across bookmakers", () => {
     const [x] = parseApiFootballOdds([{ fixture: { id: 7 }, bookmakers: [1.8, 1.9, 2.1].map((o) => ({ name: "b", bets: [{ name: "Match Winner", values: [{ value: "Home", odd: String(o) }] }] })) }]);

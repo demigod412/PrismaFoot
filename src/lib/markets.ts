@@ -21,6 +21,76 @@ export const GROUP_LABEL: Record<MarketGroup, string> = {
 
 export interface MarketTip { key: MarketKey; group: MarketGroup; label: string; short: string; p: number; line?: number; main?: boolean; strong?: boolean; alt?: boolean }
 
+/*
+ * Filtering by market.
+ *
+ * The Top list only ever offered the nine GROUPS, so "the strongest Over 2.5 tips" — the most natural
+ * request there is — could not be asked for: picking "Goals O/U" returns whichever of six goals markets
+ * happens to be strongest per match, which is usually Under 4.5. A selector can now name a single
+ * market as well as a group.
+ *
+ * Corner and shot lines are chosen per fixture, so their keys carry the line ("corners_over@10.5") and
+ * no fixed key would match. A line selector therefore matches the base and side at ANY line, which is
+ * what someone asking for "corners over" means.
+ */
+export type MarketSelector = MarketGroup | `k:${string}`;
+export const isKeySelector = (s: string): s is `k:${string}` => s.startsWith("k:");
+
+export interface MarketOption { value: MarketSelector; label: string; group: MarketGroup }
+
+/** Every market selectable on its own, in the order the groups are listed. */
+export const MARKET_OPTIONS: MarketOption[] = [
+  { value: "k:home", label: "Home win", group: "win" },
+  { value: "k:away", label: "Away win", group: "win" },
+  { value: "k:draw", label: "Draw", group: "win" },
+  { value: "k:dc_1x", label: "Home or draw (1X)", group: "dc" },
+  { value: "k:dc_x2", label: "Draw or away (X2)", group: "dc" },
+  { value: "k:dc_12", label: "Home or away (12)", group: "dc" },
+  { value: "k:over15", label: "Over 1.5 goals", group: "goals" },
+  { value: "k:over25", label: "Over 2.5 goals", group: "goals" },
+  { value: "k:over35", label: "Over 3.5 goals", group: "goals" },
+  { value: "k:under25", label: "Under 2.5 goals", group: "goals" },
+  { value: "k:under35", label: "Under 3.5 goals", group: "goals" },
+  { value: "k:under45", label: "Under 4.5 goals", group: "goals" },
+  { value: "k:btts_yes", label: "Both teams to score", group: "btts" },
+  { value: "k:btts_no", label: "Both teams to score: No", group: "btts" },
+  { value: "k:home_by2", label: "Home to win by 2+", group: "hcp" },
+  { value: "k:away_by2", label: "Away to win by 2+", group: "hcp" },
+  { value: "k:h1_under15", label: "1st half Under 1.5", group: "halves" },
+  { value: "k:h1_under25", label: "1st half Under 2.5", group: "halves" },
+  { value: "k:h2_under25", label: "2nd half Under 2.5", group: "halves" },
+  { value: "k:ht_draw", label: "Draw at half-time", group: "halves" },
+  { value: "k:home_or_over25", label: "Home win or Over 2.5", group: "combo" },
+  { value: "k:away_or_over25", label: "Away win or Over 2.5", group: "combo" },
+  { value: "k:corners_over", label: "Corners: Over (any line)", group: "corners" },
+  { value: "k:corners_under", label: "Corners: Under (any line)", group: "corners" },
+  { value: "k:shots_over", label: "Shots: Over (any line)", group: "shots" },
+  { value: "k:shots_under", label: "Shots: Under (any line)", group: "shots" },
+];
+
+/** Parse a selector off a query string. Unknown values fall back to no filter rather than an error. */
+export function parseSelector(v: string | undefined): MarketSelector | undefined {
+  if (!v) return undefined;
+  if (v in GROUP_LABEL) return v as MarketGroup;
+  return MARKET_OPTIONS.some((o) => o.value === v) ? (v as MarketSelector) : undefined;
+}
+
+/** Does this market satisfy the selector? A line selector matches its base and side at any line. */
+export function selectorMatches(sel: MarketSelector | undefined, m: { key: MarketKey; group: MarketGroup }): boolean {
+  if (!sel) return true;
+  if (!isKeySelector(sel)) return m.group === sel;
+  const want = sel.slice(2);
+  const line = parseLineKey(m.key);
+  if (line) return `${line.base}_${line.side}` === want;
+  return m.key === want;
+}
+
+/** The market a key selector names, when it names one. Used to honour explicit asks for excluded markets. */
+export const selectorKey = (sel: MarketSelector | undefined) => (sel && isKeySelector(sel) ? sel.slice(2) : null);
+
+export const selectorLabel = (sel: MarketSelector | undefined) =>
+  !sel ? "All markets" : isKeySelector(sel) ? MARKET_OPTIONS.find((o) => o.value === sel)?.label ?? sel : GROUP_LABEL[sel];
+
 /** Corner / shot lines are per fixture, so the line travels in the key: "corners_over@10.5". */
 export const lineKey = (base: "corners" | "shots", side: "over" | "under", line: number) => `${base}_${side}@${line}` as MarketKey;
 export const parseLineKey = (k: string) => { const m = /^(corners|shots)_(over|under)@(-?\d+(?:\.\d+)?)$/.exec(k); return m ? { base: m[1] as "corners" | "shots", side: m[2] as "over" | "under", line: Number(m[3]) } : null; };

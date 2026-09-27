@@ -1,6 +1,6 @@
 import type { Prediction } from "@prisma/client";
-import { allMarkets, type MarketTip } from "./markets";
-import type { QuoteMap } from "./odds";
+import { allMarkets, selectorMatches, type MarketSelector, type MarketTip } from "./markets";
+import { quoteFor, type QuoteMap } from "./odds";
 
 /*
  * Value tips: where the model's probability is higher than the bookmaker's price implies.
@@ -8,17 +8,20 @@ import type { QuoteMap } from "./odds";
  * Filters: Medium/High confidence, p ≥ 35%, median odds 1.40–6.00, edge ≥ 3%. One tip per match, ranked by edge.
  * Edges are only as good as the model's calibration — they are estimates, not guarantees.
  */
-export const VALUE = { minP: 0.35, minOdds: 1.4, maxOdds: 6, minEdge: 0.03, topN: 20 };
+// topN matches the likely list: a value list that stopped at 20 while the other showed 50 was an
+// inconsistency with no reason behind it, and fewer qualify anyway.
+export const VALUE = { minP: 0.35, minOdds: 1.4, maxOdds: 6, minEdge: 0.03, topN: 50 };
 /** Odds ceilings offered on the value list. Shorter prices mean safer legs and a steadier record. */
 export const VALUE_CEILINGS = [2, 3, 6] as const;
 /** ★ marks standout value: a High-confidence call with a clear edge, not just a qualifying one. */
 export const isStarred = (t: { edge: number; band: string; p: number }) => t.band === "HIGH" && t.edge >= 0.08 && t.p >= 0.5;
 export interface ValueTip extends MarketTip { odds: number; best: number; books: number; edge: number; fair: number; star?: boolean }
 
-export function valueTips(p: Prediction, quotes: QuoteMap, home: string, away: string, opts: { maxOdds?: number } = {}): ValueTip[] {
+export function valueTips(p: Prediction, quotes: QuoteMap, home: string, away: string, opts: { maxOdds?: number; market?: MarketSelector } = {}): ValueTip[] {
   if (p.band === "LOW") return [];
   return allMarkets(p, home, away).flatMap((m) => {
-    const q = quotes[m.key];
+    if (!selectorMatches(opts.market, m)) return [];
+    const q = quoteFor(quotes, m.key);
     if (!q || m.p < VALUE.minP || q.odds < VALUE.minOdds || q.odds > (opts.maxOdds ?? VALUE.maxOdds)) return [];
     const edge = m.p * q.odds - 1;
     return edge >= VALUE.minEdge ? [{ ...m, odds: q.odds, best: q.best, books: q.books, edge, fair: 1 / m.p, star: isStarred({ edge, band: p.band, p: m.p }) }] : [];

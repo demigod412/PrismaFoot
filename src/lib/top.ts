@@ -1,5 +1,5 @@
 import type { Prediction } from "@prisma/client";
-import { allMarkets, marketHit, type MarketGroup, type MarketKey, type MarketTip, type MatchResult } from "./markets";
+import { allMarkets, marketHit, selectorKey, selectorMatches, type MarketKey, type MarketSelector, type MarketTip, type MatchResult } from "./markets";
 
 /*
  * Top tips: one tip per match (its single strongest market within the chosen group), ranked by strength.
@@ -25,11 +25,26 @@ export type TipMarket = MarketKey;
 
 export const strengthOf = (prob: number, confidence: number) => prob * (0.85 + 0.15 * (confidence / 100));
 
-/** All qualifying tips for one match, strongest first. */
-export function tipsFor(p: Prediction, home: string, away: string, group?: MarketGroup): Tip[] {
+/**
+ * All qualifying tips for one match, strongest first.
+ *
+ * `sel` names a group or a single market. Two things it changes beyond narrowing:
+ *
+ *   - Asking for a market by name overrides the standing exclusion. Draws are kept out of the mixed list
+ *     because they would never be anyone's strongest tip, but someone who selects "Draw" is not asking
+ *     for the mixed list — and an option that is always empty is worse than no option.
+ *   - Alternative corner and shot lines are normally suppressed so one fixture cannot contribute eight
+ *     near-identical tips. Asking for that base and side explicitly lifts that too, since the whole
+ *     point of choosing it is to see the lines.
+ */
+export function tipsFor(p: Prediction, home: string, away: string, sel?: MarketSelector): Tip[] {
   if (p.band === "LOW") return [];
+  const named = selectorKey(sel);
+  const asksForLines = named === "corners_over" || named === "corners_under" || named === "shots_over" || named === "shots_under";
   return allMarkets(p, home, away)
-    .filter((m) => !EXCLUDED.includes(m.key) && (!m.alt || m.strong) && (!group || m.group === group) && m.p >= MIN_P)
+    .filter((m) => (!EXCLUDED.includes(m.key) || named === m.key)
+      && (!m.alt || m.strong || asksForLines)
+      && selectorMatches(sel, m) && m.p >= MIN_P)
     .map((m) => ({ ...m, strength: strengthOf(m.p, p.confidence) }))
     .sort((a, b) => b.strength - a.strength);
 }
@@ -40,15 +55,15 @@ export function tipsFor(p: Prediction, home: string, away: string, group?: Marke
  * They stay visible in the match's "All markets" card and (capped) in the Top 50.
  */
 export const HEADLINE_EXCLUDED = (t: MarketTip) => t.group === "dc" || t.key === "under45" || t.key === "h1_under25" || t.key === "h2_under25";
-export function bestTip(p: Prediction, home: string, away: string, group?: MarketGroup): Tip | null {
-  return tipsFor(p, home, away, group).find((t) => group || !HEADLINE_EXCLUDED(t)) ?? null;
+export function bestTip(p: Prediction, home: string, away: string, sel?: MarketSelector): Tip | null {
+  return tipsFor(p, home, away, sel).find((t) => sel || !HEADLINE_EXCLUDED(t)) ?? null;
 }
 
 /**
  * Build the Top N: one tip per match, strongest first, with category caps in the mixed list.
  * Items carry whatever the caller needs back (fixture etc.).
  */
-export function selectTop<T>(items: { item: T; id: string; tips: Tip[]; startMs: number }[], group?: MarketGroup, n = TOP_N): { item: T; tip: Tip }[] {
+export function selectTop<T>(items: { item: T; id: string; tips: Tip[]; startMs: number }[], sel?: MarketSelector, n = TOP_N): { item: T; tip: Tip }[] {
   const pairs = items.flatMap((x) => x.tips.map((tip) => ({ x, tip })))
     .sort((a, b) => b.tip.strength - a.tip.strength || a.x.startMs - b.x.startMs);
   const used = new Set<string>(), count: Record<CapKey, number> = { dc: 0, under45: 0, hcp: 0, halfU25: 0 };
@@ -56,7 +71,7 @@ export function selectTop<T>(items: { item: T; id: string; tips: Tip[]; startMs:
   for (const { x, tip } of pairs) {
     if (out.length >= n) break;
     if (used.has(x.id)) continue;
-    const c = group ? null : capOf(tip); // caps only apply to the mixed list
+    const c = sel ? null : capOf(tip); // caps only apply to the mixed list
     if (c && count[c] >= CAPS[c]) continue;
     used.add(x.id); if (c) count[c]++;
     out.push({ item: x.item, tip });
