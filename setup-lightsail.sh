@@ -505,6 +505,15 @@ if [[ -n "$API_KEY" && -f "$CRON_FILE" ]]; then
   say "Starting the first data sync in the background"
   grep -o 'curl .*' "$CRON_FILE" | grep -v 'job=lock' | while read -r cmd; do nohup bash -c "$cmd" >/dev/null 2>&1 & done
   ok "Sync started — watch /var/log/$APP_NAME-cron.log"
+elif [[ -f "$CRON_FILE" ]]; then
+  # No key yet, so a sync now would fetch nothing. The gap this closes: adding the key in Settings
+  # afterwards starts nothing, and the site then sits empty until the next three-hourly cron tick with
+  # no indication that it is only waiting. Say so here, where it is still on screen.
+  warn "No data key given, so no sync was started."
+  echo "     Add one in Settings (unlock with the PIN above), then run the first sync yourself:"
+  echo "       cd $APP_DIR && sudo -u $APP_USER npm run ingest"
+  echo "     Until that finishes the site shows the demo data set, or nothing if you skipped it."
+  echo "     If anything looks wrong: cd $APP_DIR && sudo -u $APP_USER npm run diagnose"
 fi
 
 # =============================================================================

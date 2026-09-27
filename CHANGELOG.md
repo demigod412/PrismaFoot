@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.13.0 — `npm run diagnose`, and the blank-site-after-install gap
+
+A fresh install with the key added afterwards came up completely blank, with nothing anywhere saying why.
+Two causes, both now addressed.
+
+### Fix: adding the key after install started nothing
+The installer only fires the first sync when a key was given **at install time**
+(`if [[ -n "$API_KEY" ]]`). Adding one in Settings afterwards — the sensible order, and the one the
+install prompt itself suggests — started nothing, so the site sat empty until the next three-hourly cron
+tick with no indication that it was merely waiting. The installer now says so explicitly when no key was
+given, and prints the two commands that follow.
+
+### New: `npm run diagnose`
+Every page here is downstream of the one before it: a provider key → leagues → fixtures → predictions →
+tips. An empty board is almost never a broken board; it is the first missing link. This walks the chain
+in order, names where it stops, and prints the command that fills it.
+
+It also names the mismatch that is otherwise invisible: **`primaryProvider` defaults to `api-football`**,
+so a football-data.org key saved on its own leaves the app in demo mode and no page says a word about it.
+The diagnostic reports which provider is selected, which keys are saved and where from, and whether the
+key that provider actually needs is among them.
+
+And it asks the provider to prove itself **from that machine**, because a valid key on a server that
+cannot reach the API produces symptoms identical to no key at all.
+
 ## 0.12.1 — stop reporting success after a failed pull
 
 The rsync deploy path ran `git pull --ff-only || true`, so a pull that could not merge was swallowed:
