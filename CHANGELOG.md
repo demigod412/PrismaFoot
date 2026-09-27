@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.1 — stop reporting success after a failed pull
+
+The rsync deploy path ran `git pull --ff-only || true`, so a pull that could not merge was swallowed:
+rsync then copied the *unchanged* tree, the build and restart went ahead, and the script printed
+"Updated and restarted" while the running app stayed on the previous version. It now stops, says nothing
+was deployed, and names the two usual causes.
+
+(Found and fixed in EdgeQuant first, where it cost a round trip of debugging a fix that was never
+running. Same line, same file, same failure.)
+
 ## 0.12.0 — every market selectable, and corner odds that could never match
 
 ### The Top 50 offered nine groups, not the markets

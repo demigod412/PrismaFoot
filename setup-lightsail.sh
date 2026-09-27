@@ -82,7 +82,14 @@ if [[ "$MODE" == "update" ]]; then
   elif [[ -f "$APP_DIR/.deploy-source" && -d "$(cat "$APP_DIR/.deploy-source")" ]]; then
     SRC=$(cat "$APP_DIR/.deploy-source")
     say "Syncing from $SRC"
-    [[ -d "$SRC/.git" ]] && sudo -u "$APP_USER" git -C "$SRC" pull --ff-only || true
+    # A failed pull here used to be swallowed by `|| true`, and the rsync below would then copy the
+    # UNCHANGED tree while the script reported "Updated and restarted". A deploy that ships the old code
+    # and calls it success is worse than one that stops, so this stops.
+    if [[ -d "$SRC/.git" ]]; then
+      sudo -u "$APP_USER" git -C "$SRC" pull --ff-only         || die "git pull failed in $SRC. Nothing was deployed and the running app is untouched. Resolve it there, then re-run this update.
+       Local changes blocking the merge?  git -C $SRC diff
+       Only the execute bit differs?      git -C $SRC config core.fileMode false"
+    fi
     rsync -a --delete --exclude ".env" --exclude "node_modules" --exclude ".next" --exclude ".git" --exclude ".deploy-source" "$SRC"/ "$APP_DIR"/
     echo "$SRC" > "$APP_DIR/.deploy-source"; chown -R "$APP_USER:$APP_USER" "$APP_DIR"
   else
