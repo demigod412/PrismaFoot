@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.14.5 — the bounded run syncs what is about to kick off
+
+Capping a run at 60 competitions made staleness the wrong queue. Nothing was being dropped — 263 over
+four or five runs is a rotation, not a cap — but a league kicking off in two hours could wait behind one
+whose next match is on Saturday, purely because the Saturday one happened to be synced slightly earlier.
+
+Competitions with a fixture inside `URGENT_KICKOFF_HOURS` (default 12) now take priority, and the rest
+rotate by staleness underneath them. A competition with no known fixture — never synced, or out of
+season — has no urgency and sorts on staleness, which still puts a never-synced one near the front since
+its `lastSyncAt` is zero.
+
+The report says how many of the run's competitions were urgent, so a deferred remainder reads as a
+rotation with the right things at the front rather than an arbitrary truncation.
+
 ## 0.14.4 — repredict could never reach zero
 
 It counted every future fixture as outstanding, but `rateAndPredictLeague` prices only from the lock

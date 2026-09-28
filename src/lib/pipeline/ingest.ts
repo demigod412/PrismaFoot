@@ -36,8 +36,36 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
     // Within that, least-recently-synced first: a run that gets cut short (a long first sync, a dropped
     // session, an out-of-memory kill) then resumes with the leagues it never reached rather than
     // starting over on the same ones.
-    const lastSynced = new Map((await db.league.findMany({ where: { provider }, select: { externalId: true, lastSyncAt: true } }))
-      .map((l) => [l.externalId, l.lastSyncAt?.getTime() ?? 0]));
+    const known = await db.league.findMany({ where: { provider }, select: { id: true, externalId: true, lastSyncAt: true } });
+    const lastSynced = new Map(known.map((l) => [l.externalId, l.lastSyncAt?.getTime() ?? 0]));
+    /*
+     * When each competition next plays.
+     *
+     * Staleness alone is the wrong queue once a run is bounded: a league kicking off in two hours would
+     * wait behind one whose next match is on Saturday, purely because the Saturday one was synced a few
+     * hours earlier. The fixtures that matter are the imminent ones, so anything playing inside
+     * URGENT_HOURS jumps the queue and the rest rotate by staleness underneath it.
+     *
+     * A competition with no known fixture — never synced, or out of season — has no urgency and sorts on
+     * staleness, which puts a never-synced one near the front anyway since its lastSyncAt is zero.
+     */
+    const byLeagueId = new Map(known.map((l) => [l.id, l.externalId]));
+    const nextKickoff = new Map<string, number>();
+    for (const row of await db.fixture.groupBy({
+      by: ["leagueId"],
+      where: { provider, status: "SCHEDULED", kickoffUtc: { gt: now } },
+      _min: { kickoffUtc: true },
+    })) {
+      const ext = byLeagueId.get(row.leagueId);
+      const at = row._min.kickoffUtc?.getTime();
+      if (ext && at) nextKickoff.set(ext, at);
+    }
+    const URGENT_HOURS = Number(process.env.URGENT_KICKOFF_HOURS) || 12;
+    const urgentBefore = now.getTime() + URGENT_HOURS * 3600_000;
+    const urgent = (extId: string) => {
+      const at = nextKickoff.get(extId);
+      return at != null && at <= urgentBefore ? 0 : 1;
+    };
     /**
      * Match statistics, bookmaker odds and injuries are capped per SYNC, not per league, so whichever
      * leagues come first spend the whole budget. Those markets (corners, shots, value) only matter where
@@ -69,11 +97,13 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
     const maxLeagues = Number(process.env.MAX_LEAGUES_PER_SYNC) || 60;
     const eligible = (await p.getLeagues()).filter((l) => entryFor(allow, l))
       .sort((x, y) => Number(!!entryFor(allow, x)?.pool) - Number(!!entryFor(allow, y)?.pool)
+        || urgent(x.externalId) - urgent(y.externalId)
         || (lastSynced.get(x.externalId) ?? 0) - (lastSynced.get(y.externalId) ?? 0));
     const leagues = eligible.slice(0, maxLeagues);
     if (eligible.length > leagues.length) {
-      report.deferred = `${eligible.length - leagues.length} competition(s) left for the next run (cap ${maxLeagues}, stalest first)`;
-      console.error(`  ${leagues.length} of ${eligible.length} competitions this run; the rest follow next run.`);
+      const urgentCount = leagues.filter((l) => urgent(l.externalId) === 0).length;
+      report.deferred = `${eligible.length - leagues.length} competition(s) left for the next run (cap ${maxLeagues}; ${urgentCount} kicking off within ${URGENT_HOURS}h took priority, the rest rotate by staleness)`;
+      console.error(`  ${leagues.length} of ${eligible.length} competitions this run (${urgentCount} playing within ${URGENT_HOURS}h); the rest follow next run.`);
     }
     const labelCount = new Map<string, number>();
     for (const l of leagues) { const k = `${l.country} · ${l.name}`; labelCount.set(k, (labelCount.get(k) ?? 0) + 1); }
