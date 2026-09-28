@@ -20,7 +20,8 @@
  * already carries the new markets is skipped by the revision check rather than rewritten.
  */
 import { PrismaClient } from "@prisma/client";
-import { rateAndPredictLeague } from "../src/lib/pipeline/predict";
+import { LOCK_MINUTES, rateAndPredictLeague } from "../src/lib/pipeline/predict";
+import { FIXTURE_WINDOW_DAYS } from "../src/lib/window";
 import { PROVIDER_ENUM, primaryProviderId } from "../src/lib/providers";
 
 const db = new PrismaClient();
@@ -43,9 +44,21 @@ const DEFAULT_BATCH = 20;
    * shrank, and each run handed back the same twenty competitions — correctly skipping most of them, and
    * never finishing. What identifies work remaining is a fixture with NO revision carrying the markets.
    */
+  /*
+   * The window has to be the predictor's window, not "anything in the future".
+   *
+   * rateAndPredictLeague prices fixtures from the lock boundary out to FIXTURE_WINDOW_DAYS and no
+   * further. Counting every future fixture as outstanding therefore left a permanent residue of ones it
+   * would never reach — a single MLS fixture months ahead sat at "1 left" through run after run. A
+   * progress figure that can never reach zero is worse than no figure, because it looks like a failure.
+   */
+  const now = new Date();
   const needsWork = {
     status: "SCHEDULED" as const,
-    kickoffUtc: { gt: new Date() },
+    kickoffUtc: {
+      gt: new Date(now.getTime() + LOCK_MINUTES * 60_000),
+      lte: new Date(now.getTime() + FIXTURE_WINDOW_DAYS * 86_400_000),
+    },
     predictions: { none: { calNoRun3: { not: null } } },
   };
   const candidates = await db.league.findMany({

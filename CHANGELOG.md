@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.14.4 — repredict could never reach zero
+
+It counted every future fixture as outstanding, but `rateAndPredictLeague` prices only from the lock
+boundary out to `FIXTURE_WINDOW_DAYS`. So fixtures beyond that window were counted as work and never
+done: a single MLS fixture months ahead sat at "1 fixture(s) left" through run after run, and fixtures
+inside the 15-minute lock window would have done the same until kickoff passed.
+
+The count now uses the predictor's own window at both ends. A progress figure that cannot reach zero is
+worse than no figure at all, because it reads as a failure when nothing is wrong.
+
 ## 0.14.3 — repredict counted its own work wrong and would never have finished
 
 The filter picking competitions to re-price was `predictions: { some: { calNoRun3: null } }`. Predictions
