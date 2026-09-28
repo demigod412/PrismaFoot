@@ -58,11 +58,15 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
      * a small box that is what made it crawl: leagues taking two seconds each at the start were taking
      * thirty by the hundred-and-thirtieth, and a full pass stopped finishing at all.
      *
-     * Capping it turns that into a rotation. With the default, a complete cycle takes three or four runs
-     * — about half a day — which is ample for fixtures a week out, and it cuts the provider requests per
-     * run in the same proportion. Raise MAX_LEAGUES_PER_SYNC on a bigger machine.
+     * Capping it turns that into a rotation. At the default a complete cycle takes four or five runs —
+     * half a day or so, ample for fixtures a week out — and it cuts provider requests per run in the same
+     * proportion. The number is set for a 2GB machine sharing with other apps, where the stalled run
+     * degraded badly somewhere past league 120; raise MAX_LEAGUES_PER_SYNC on a bigger one.
+     *
+     * The npm script also bounds Node's heap. Between them, a runaway fit now dies on its own rather
+     * than dragging the machine into swap — which is what made it impossible even to log in and stop.
      */
-    const maxLeagues = Number(process.env.MAX_LEAGUES_PER_SYNC) || 80;
+    const maxLeagues = Number(process.env.MAX_LEAGUES_PER_SYNC) || 60;
     const eligible = (await p.getLeagues()).filter((l) => entryFor(allow, l))
       .sort((x, y) => Number(!!entryFor(allow, x)?.pool) - Number(!!entryFor(allow, y)?.pool)
         || (lastSynced.get(x.externalId) ?? 0) - (lastSynced.get(y.externalId) ?? 0));

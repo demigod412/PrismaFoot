@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.14.2 — a sync that cannot take the machine down with it
+
+The box is 1.9GB of RAM shared between three Next apps and Postgres. One process fitting 263 leagues
+holds all of that match history at once, so it grew past the available memory and into swap — and once a
+machine is thrashing, sshd cannot get scheduled either, which is why it became impossible even to log in
+and stop the thing. A reboot did not help, because nothing was wrong with the machine.
+
+Two changes, because the cap alone only makes the common case safe:
+
+- **`MAX_LEAGUES_PER_SYNC` default 60**, down from the 80 shipped an hour ago. The run that stalled
+  degraded badly somewhere past league 120 on this hardware — two to three seconds per league early on,
+  twenty-nine by the hundred-and-twenty-eighth — so 60 leaves real margin. A full cycle takes four or
+  five runs, half a day, which is ample for fixtures a week out.
+- **`--max-old-space-size=640` on `ingest` and `repredict`.** A runaway fit now dies with a heap error
+  instead of dragging everything into swap. That is a much better failure: the stalest-first ordering
+  means the next run simply picks up the leagues it never reached, so a crash is self-healing, whereas a
+  thrashing machine locks you out of fixing it.
+
 ## 0.14.1 — a sync that finishes, and filling new columns without one
 
 ### Fix: nothing bounded a sync run
