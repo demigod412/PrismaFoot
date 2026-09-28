@@ -4,8 +4,13 @@ import { allMarkets, type MarketKey, type MarketTip } from "./markets";
 export type Market = MarketKey | "btts";
 export interface Pick { market: Market; label: string; p: number }
 
-export interface ScannerFloors { safeP: number; winMargin: number; o15: number; o25: number; btts: number; draw: number; team2: number; u25: number; u35: number; u45: number; dc: number; bttsNo: number; by2: number; corners: number; shots: number; h1u15: number; h1u25: number; h2u25: number; winOver: number; htDraw: number }
-export const DEFAULT_FLOORS: ScannerFloors = { safeP: 0.7, winMargin: 0.1, o15: 0.72, o25: 0.55, btts: 0.55, draw: 0.3, team2: 0.45, u25: 0.55, u35: 0.72, u45: 0.85, dc: 0.75, bttsNo: 0.55, by2: 0.4, corners: 0.6, shots: 0.6, h1u15: 0.6, h1u25: 0.78, h2u25: 0.7, winOver: 0.7, htDraw: 0.3 };
+export interface ScannerFloors { safeP: number; winMargin: number; o15: number; o25: number; btts: number; draw: number; team2: number; u25: number; u35: number; u45: number; dc: number; bttsNo: number; by2: number; corners: number; shots: number; h1u15: number; h1u25: number; h2u25: number; winOver: number; htDraw: number; noWinBy2: number; noBothHalves: number; noRun3: number }
+/*
+ * Floors for the three shape markets are set where the market is actually selective. "Not both halves
+ * over 1.5" sits above 0.85 on most fixtures and "no win by 2+" runs from 0.30 on a mismatch to 0.66 on
+ * an even game, so a floor borrowed from the goals markets would either pass everything or nothing.
+ */
+export const DEFAULT_FLOORS: ScannerFloors = { safeP: 0.7, winMargin: 0.1, o15: 0.72, o25: 0.55, btts: 0.55, draw: 0.3, team2: 0.45, u25: 0.55, u35: 0.72, u45: 0.85, dc: 0.75, bttsNo: 0.55, by2: 0.4, corners: 0.6, shots: 0.6, h1u15: 0.6, h1u25: 0.78, h2u25: 0.7, winOver: 0.7, htDraw: 0.3, noWinBy2: 0.6, noBothHalves: 0.85, noRun3: 0.8 };
 
 export const SCANNERS = [
   { slug: "all", name: "All", blurb: "Every fixture with a model call, ordered by kickoff." },
@@ -31,6 +36,9 @@ export const SCANNERS = [
   { slug: "draw", name: "Draw", blurb: "Draws priced above your floor. Draws are rarely favourites; this list is for context." },
   { slug: "safe", name: "Safe", blurb: "High confidence and a single market at or above your safe floor. Not a guarantee. Under 4.5 is left out because it would top almost every match." },
   { slug: "team2", name: "Team 2+ goals", blurb: "One side expected to score two or more, from the scoreline matrix." },
+  { slug: "nowinby2", name: "No win by 2+", blurb: "The margin to be a draw or a single goal, above your floor. The exact complement of the win-by-2 list." },
+  { slug: "nobothhalves", name: "Not both halves O1.5", blurb: "At most one half to produce two or more goals, above your floor. It takes four goals to fail, so the floor is set high." },
+  { slug: "norun3", name: "No 3 in a row", blurb: "Neither side to score three goals in a row, above your floor. Exact, and never scored: settling it needs the order the goals arrived in, which is not stored." },
   { slug: "blend", name: "Blend", blurb: "Pick legs yourself. Combined probability assumes independence." },
 ] as const;
 export type ScannerSlug = (typeof SCANNERS)[number]["slug"];
@@ -40,6 +48,7 @@ export const MARKET_LABEL: Partial<Record<Market, string>> & Record<string, stri
   dc_1x: "1X", dc_x2: "X2", dc_12: "12", btts_no: "BTTS No", home_by2: "Home −1.5", away_by2: "Away −1.5",
   corners_over: "Corners Over 8.5", corners_under: "Corners Under 8.5", shots_over: "Shots Over 24.5", shots_under: "Shots Under 24.5",
   h1_under15: "1H Under 1.5", h1_under25: "1H Under 2.5", h2_under25: "2H Under 2.5", home_or_over25: "Home or Over 2.5", away_or_over25: "Away or Over 2.5", ht_draw: "HT draw",
+  no_win_by2: "No win by 2+", no_both_halves_over15: "Not both halves O1.5", no_run3: "No 3 in a row",
 };
 /** Label for any market key, including per-fixture corner / shot lines ("corners_over@10.5"). */
 export const labelOf = (m: Market) => MARKET_LABEL[m as keyof typeof MARKET_LABEL] ?? String(m).replace(/^(corners|shots)_(over|under)@/, (_x, b: string, s: string) => `${b[0].toUpperCase()}${b.slice(1)} ${s === "over" ? "Over" : "Under"} `);
@@ -60,6 +69,9 @@ export function marketP(p: Prediction, m: Market): number {
     default: return 0;
     case "h1_under15": return p.calH1Under15 ?? 0; case "h1_under25": return p.calH1Under25 ?? 0; case "h2_under25": return p.calH2Under25 ?? 0;
     case "ht_draw": return p.calHtDraw ?? 0;
+    case "no_win_by2": return p.calNoWinBy2 ?? 0;
+    case "no_both_halves_over15": return p.calNoBothHalvesOver15 ?? 0;
+    case "no_run3": return p.calNoRun3 ?? 0;
     case "home_or_over25": return p.calHomeOrOver25 ?? 0; case "away_or_over25": return p.calAwayOrOver25 ?? 0;
   }
 }
@@ -133,6 +145,17 @@ export function scan(slug: ScannerSlug, p: Prediction, f: ScannerFloors): Pick |
       const b = p.calHomeOrOver25 >= p.calAwayOrOver25 ? { market: "home_or_over25" as Market, label: "Home win or Over 2.5", p: p.calHomeOrOver25 } : { market: "away_or_over25" as Market, label: "Away win or Over 2.5", p: p.calAwayOrOver25 };
       return b.p >= f.winOver ? b : null;
     }
+    case "nowinby2": return p.calNoWinBy2 != null && p.calNoWinBy2 >= f.noWinBy2
+      ? { market: "no_win_by2", label: "No team to win by 2+", p: p.calNoWinBy2 } : null;
+    case "nobothhalves": return p.calNoBothHalvesOver15 != null && p.calNoBothHalvesOver15 >= f.noBothHalves
+      ? { market: "no_both_halves_over15", label: "Not both halves over 1.5", p: p.calNoBothHalvesOver15 } : null;
+    /*
+     * Listed like any other scanner, because a scanner is a way of browsing probabilities rather than a
+     * ranked list with a record attached — which is why this one is kept out of the Top 50 but belongs
+     * here. Its blurb says it can never be scored.
+     */
+    case "norun3": return p.calNoRun3 != null && p.calNoRun3 >= f.noRun3
+      ? { market: "no_run3", label: "No 3 goals in a row", p: p.calNoRun3 } : null;
     case "blend": return oneXTwoPick(p);
   }
 }

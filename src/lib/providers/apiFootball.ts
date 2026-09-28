@@ -90,6 +90,10 @@ export function apiFootball(opts: { key?: string; rapidKey?: string; rapidHost?:
         return [{ bookmaker: b.name, home: v("Home"), draw: v("Draw"), away: v("Away") }];
       });
     },
+    // Unparsed, for oddscheck only: the parser keeps just the bet names it knows.
+    async rawOdds(fixtureExternalId) {
+      return get<unknown[]>(`/odds?fixture=${fixtureExternalId}`);
+    },
     async getLeagueOdds(leagueId, season, page) {
       const r = await fetchJson<{ response: Parameters<typeof parseApiFootballOdds>[0]; paging?: { current: number; total: number }; errors?: unknown }>("api-football", `${base}/odds?${qs({ league: leagueId, season, page })}`, headers);
       return { items: parseApiFootballOdds(r.response ?? []), pages: r.paging?.total ?? 1 };

@@ -33,6 +33,13 @@ export interface FootballProvider {
   getOdds(fixtureId: string): Promise<POdds[]>;
   /** Corners + total shots for a finished match. null = provider/plan has no match statistics. */
   getStats(fixtureId: string): Promise<PStats | null>;
+  /**
+   * The odds response for one fixture, unparsed.
+   *
+   * Only used by `npm run oddscheck`, to show which bet names the feed actually offers. The parsed path
+   * drops anything unmapped silently, which makes a missing market look like a missing price.
+   */
+  rawOdds?(fixtureExternalId: string): Promise<unknown>;
   /** Pre-match odds for a whole league, paged. null = provider has no odds. */
   getLeagueOdds?(leagueId: string, season: number, page: number): Promise<{ items: { fixtureExt: string; quotes: import("../odds").QuoteMap }[]; pages: number } | null>;
   testConnection(): Promise<{ ok: boolean; message: string }>;

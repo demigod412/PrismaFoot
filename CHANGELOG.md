@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.15.0 — hourly sync, the new markets in the scanners, and what Best value can actually show
+
+### Every competition refreshed about every four hours
+Thirteen hours was too long. Rather than raise the per-run cap — which is what stalled the machine — the
+sync now runs **hourly** instead of every three hours, keeping 60 competitions per run. That is 1,440
+league refreshes a day against 263 competitions: a full pass roughly every **four and a half hours**, and
+every run stays small enough to be safe on 2GB.
+
+Competitions kicking off within twelve hours still jump the queue, so the fixtures about to start are
+refreshed hourly rather than every four.
+
+Provider requests land around 4,900 a day against the 7,500 ceiling — comparable to before, because a run
+of 60 costs a third of a run of 263 and there are three times as many of them.
+
+### The three markets are in the scanners
+**No win by 2+**, **Not both halves O1.5** and **No 3 in a row**, each with its own floor in Settings.
+Floors are set where each market is actually selective: "not both halves" sits above 0.85 on most
+fixtures and "no win by 2+" runs from 0.30 on a mismatch to 0.66 on an even game, so a floor borrowed
+from the goals markets would pass everything or nothing.
+
+The run market is listed here although it is kept out of the Top 50, and the distinction is deliberate: a
+scanner is a way of browsing probabilities, while the Top 50 is a ranked list with a track record
+attached. Its blurb says it can never be scored.
+
+### New: `npm run oddscheck`
+On Best value, the honest answer is that **the list can only rank a market the bookmaker prices**, and
+nothing fetches a price for these three. Rather than guess at bet names, this prints every distinct bet
+name in a real odds response, marks which ones `apiFootballKey` maps, and lists the rest.
+
+That makes it a fact rather than a guess: if a bet name covering one of these exists, mapping it is one
+line in `src/lib/odds.ts`; if it is absent, the feed does not price it and no code will produce a quote.
+A synthesised price — deriving "no win by 2+" from the two handicap prices, say — was deliberately not
+built: it would count the bookmaker's margin twice and then call the result an edge.
+
 ## 0.14.5 — the bounded run syncs what is about to kick off
 
 Capping a run at 60 competitions made staleness the wrong queue. Nothing was being dropped — 263 over
