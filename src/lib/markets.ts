@@ -12,14 +12,25 @@ export type MarketKey =
   | `corners_over@${number}` | `corners_under@${number}` | `shots_over@${number}` | `shots_under@${number}`
   | "ht_draw"
   | "h1_under15" | "h1_under25" | "h2_under25"
-  | "home_or_over25" | "away_or_over25";
+  | "home_or_over25" | "away_or_over25"
+  | "no_both_halves_over15" | "no_win_by2" | "no_run3";
 
-export type MarketGroup = "win" | "dc" | "goals" | "btts" | "hcp" | "halves" | "combo" | "corners" | "shots";
+export type MarketGroup = "win" | "dc" | "goals" | "btts" | "hcp" | "halves" | "combo" | "corners" | "shots" | "shape";
 export const GROUP_LABEL: Record<MarketGroup, string> = {
   win: "Win", dc: "Double chance", goals: "Goals O/U", btts: "Both teams to score", hcp: "2-goal handicap", halves: "Halves", combo: "Win or Over 2.5", corners: "Corners", shots: "Total shots",
+  shape: "Shape of the game",
 };
 
-export interface MarketTip { key: MarketKey; group: MarketGroup; label: string; short: string; p: number; line?: number; main?: boolean; strong?: boolean; alt?: boolean }
+export interface MarketTip {
+  key: MarketKey; group: MarketGroup; label: string; short: string; p: number;
+  line?: number; main?: boolean; strong?: boolean; alt?: boolean;
+  /**
+   * Set when the outcome cannot be settled from what is stored, so the app can show the probability and
+   * still keep it out of the record. Only "no three in a row" is like this: verifying it needs the order
+   * the goals arrived in, and only the final and half-time scores are kept.
+   */
+  unverifiable?: true;
+}
 
 /*
  * Filtering by market.
@@ -60,6 +71,8 @@ export const MARKET_OPTIONS: MarketOption[] = [
   { value: "k:h1_under25", label: "1st half Under 2.5", group: "halves" },
   { value: "k:h2_under25", label: "2nd half Under 2.5", group: "halves" },
   { value: "k:ht_draw", label: "Draw at half-time", group: "halves" },
+  { value: "k:no_both_halves_over15", label: "Not both halves over 1.5", group: "halves" },
+  { value: "k:no_win_by2", label: "No team to win by 2+", group: "hcp" },
   { value: "k:home_or_over25", label: "Home win or Over 2.5", group: "combo" },
   { value: "k:away_or_over25", label: "Away win or Over 2.5", group: "combo" },
   { value: "k:corners_over", label: "Corners: Over (any line)", group: "corners" },
@@ -147,6 +160,17 @@ export function allMarkets(p: Prediction, home: string, away: string): MarketTip
     { key: "away_or_over25", group: "combo", label: `${away} win or Over 2.5 goals`, short: "Away or O2.5", p: p.calAwayOrOver25 },
   );
   if (p.calHtDraw != null) out.push({ key: "ht_draw", group: "halves", label: "Draw at half-time", short: "HT draw", p: p.calHtDraw });
+  if (p.calNoBothHalvesOver15 != null) out.push({ key: "no_both_halves_over15", group: "halves",
+    label: "Not both halves over 1.5 goals", short: "Not both halves O1.5", p: p.calNoBothHalvesOver15 });
+  if (p.calNoWinBy2 != null) out.push({ key: "no_win_by2", group: "hcp",
+    label: "No team to win by 2 or more", short: "No win by 2+", p: p.calNoWinBy2 });
+  /*
+   * Read-only: the probability is exact, the outcome is not recoverable. Flagged rather than omitted,
+   * because a market shown without a probability is useless and a probability shown without the caveat
+   * would end up in a record it can never be judged against.
+   */
+  if (p.calNoRun3 != null) out.push({ key: "no_run3", group: "shape",
+    label: "Neither team scores 3 goals in a row", short: "No 3 in a row", p: p.calNoRun3, unverifiable: true });
   const cRows = ladderOf(p.cornerLines), sRows = ladderOf(p.shotLines);
   if (cRows.length) out.push(...lineMarkets("corners", cRows, p.cornersLine, "corners", "corners"));
   else if (p.calCornersOver != null && p.cornersLine != null) out.push( // older predictions: the old fixed line
@@ -173,6 +197,18 @@ export function marketHit(k: MarketKey, r: MatchResult, lines: { corners?: numbe
     return onLine.side === "over" ? x + y > onLine.line : x + y < onLine.line;
   }
   switch (k) {
+    /*
+     * Never scoreable, and that is a property of the data rather than a gap to be filled later: the
+     * order the goals arrived in is not stored anywhere. Returning null keeps it out of the ledger,
+     * which counts unscoreable calls as exactly that.
+     */
+    case "no_run3": return null;
+    case "no_win_by2": return Math.abs(h - a) <= 1;
+    case "no_both_halves_over15": {
+      if (r.hh == null || r.ha == null) return null; // no half-time score stored
+      const h1 = r.hh + r.ha, h2 = t - h1;
+      return !(h1 >= 2 && h2 >= 2);
+    }
     case "ht_draw": return r.hh == null || r.ha == null ? null : r.hh === r.ha;
     case "home": return h > a; case "away": return a > h; case "draw": return h === a;
     case "dc_1x": return h >= a; case "dc_x2": return a >= h; case "dc_12": return h !== a;

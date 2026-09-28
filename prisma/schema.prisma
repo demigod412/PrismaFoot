@@ -188,6 +188,13 @@ model Prediction {
   calShotsOver  Float?
   cornerLines   Json?    // [{ l: line, o: P(over) }] — offered corner lines for THIS match
   shotLines     Json?    // same for total shots
+  /// P(neither team scores three goals in a row). Display only: settling it needs the order the goals
+  /// arrived in, and only the final and half-time scores are stored.
+  calNoRun3            Float?
+  /// P(at most one half produces two or more goals).
+  calNoBothHalvesOver15 Float?
+  /// P(the margin is a draw or a single goal).
+  calNoWinBy2          Float?
   calHtDraw     Float?   // draw at half-time
   // Unders are complements of the calibrated overs: under_x = 1 − over_x (lines 2.5 / 3.5 / 4.5).
   calBtts       Float

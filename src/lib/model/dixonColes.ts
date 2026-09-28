@@ -155,3 +155,87 @@ export function dcLogLik(h: number, a: number, lambda: number, mu: number, rho: 
   if (t <= 0) return -Infinity;
   return Math.log(t) + Math.log(poissonPmf(h, lambda)) + Math.log(poissonPmf(a, mu));
 }
+
+/*
+ * ── Three markets that read the sequence and the shape of a scoreline ───────────────────────────────
+ *
+ * All three are exact given the matrix. None involves a new parameter or a fitted coefficient: they are
+ * sums over cells the model already produces, which is why they can be added without disturbing
+ * anything that was calibrated.
+ */
+
+/** n choose k, by the multiplicative form so it stays exact for the sizes here. */
+function choose(n: number, k: number): number {
+  if (k < 0 || k > n) return 0;
+  let c = 1;
+  for (let i = 1; i <= Math.min(k, n - k); i++) c = (c * (n - Math.min(k, n - k) + i)) / i;
+  return Math.round(c);
+}
+
+/**
+ * Share of the arrangements of h home goals and a away goals containing no run of `maxRun` by one team.
+ *
+ * Conditional on the final score, every interleaving of those goals is equally likely — the standard
+ * result that event times are i.i.d. uniform given the count, with the scoring team independent of the
+ * times. So this is a counting problem, not a simulation: count the arrangements with no long run and
+ * divide by how many there are.
+ *
+ * Verified against brute-force enumeration for every score up to 8–8.
+ */
+export function noRunShare(h: number, a: number, maxRun = 3): number {
+  const n = h + a;
+  if (n === 0) return 1;
+  // memo key: remaining home, remaining away, who scored last (0 none, 1 home, 2 away), current run
+  const memo = new Map<number, number>();
+  const walk = (hh: number, aa: number, last: number, run: number): number => {
+    if (hh === 0 && aa === 0) return 1;
+    const key = ((hh * (a + 1) + aa) * 3 + last) * (maxRun + 1) + run;
+    const hit = memo.get(key);
+    if (hit !== undefined) return hit;
+    let total = 0;
+    if (hh > 0) { const r = last === 1 ? run + 1 : 1; if (r < maxRun) total += walk(hh - 1, aa, 1, r); }
+    if (aa > 0) { const r = last === 2 ? run + 1 : 1; if (r < maxRun) total += walk(hh, aa - 1, 2, r); }
+    memo.set(key, total);
+    return total;
+  };
+  return walk(h, a, 0, 0) / choose(n, h);
+}
+
+/**
+ * P(neither team scores three goals in a row).
+ *
+ * Cannot be settled from a final score, so it is offered for reading and never scored: verifying it
+ * needs the order the goals arrived in, and only the final and half-time scores are stored.
+ */
+export function noThreeInARow(m: Matrix, maxRun = 3): number {
+  let p = 0;
+  for (let i = 0; i < m.length; i++) for (let j = 0; j < m[i].length; j++) p += m[i][j] * noRunShare(i, j, maxRun);
+  return p;
+}
+
+/**
+ * P(NOT both halves over 1.5) — that is, at most one half produces two or more goals.
+ *
+ * Uses the same half split as `halfUnders`: given a total of n, the first half holds Binomial(n, s) of
+ * them and the second the rest. Both halves are over 1.5 only when between 2 and n−2 goals fall in the
+ * first, which needs n ≥ 4 — so low-scoring games satisfy this market almost by construction.
+ */
+export function notBothHalvesOver15(m: Matrix, s: number): number {
+  const pT: number[] = [];
+  m.forEach((row, i) => row.forEach((p, j) => { pT[i + j] = (pT[i + j] ?? 0) + p; }));
+  let both = 0;
+  pT.forEach((p, n) => {
+    if (!p || n < 4) return;
+    let inner = 0;
+    for (let k = 2; k <= n - 2; k++) inner += choose(n, k) * Math.pow(s, k) * Math.pow(1 - s, n - k);
+    both += p * inner;
+  });
+  return 1 - both;
+}
+
+/** P(no team wins by two or more) — the margin is a draw or a single goal. */
+export function noWinByTwo(m: Matrix): number {
+  let p = 0;
+  m.forEach((row, i) => row.forEach((q, j) => { if (Math.abs(i - j) <= 1) p += q; }));
+  return p;
+}

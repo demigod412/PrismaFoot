@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.14.0 — three markets read off the shape of the scoreline
+
+All three are exact given the model: sums over cells of the matrix it already produces, with no new
+parameter and no fitted coefficient, which is why they could be added without disturbing anything
+already calibrated. They are deliberately **not** passed through the 1X2 calibrators either — those are
+fitted on win/draw/away frequencies, and scaling a different quantity by them would be worse than
+stating the model's own number.
+
+- **No team to win by 2 or more** — `P(|home − away| ≤ 1)`, straight off the matrix. The exact complement
+  of the two existing win-by-2 markets, and a test asserts it.
+- **Not both halves over 1.5 goals** — uses the same half split as the existing half markets: given a
+  total of n, the first half holds Binomial(n, s) of them. Both halves clear 1.5 only when between 2 and
+  n−2 goals fall in the first, which needs n ≥ 4 — so low-scoring games satisfy it almost by construction
+  (0.97 at 0.8/0.7 goals, 0.58 at 2.5/2.0).
+- **Neither team scores 3 goals in a row** — see below.
+
+Both of the first two are fully scoreable, ranked in the Top 50, filterable by name, usable in the odds
+builder, and scored in the accuracy ledger like everything else.
+
+### The run market is exact, and can never be scored
+Conditional on the final score, every interleaving of the goals is equally likely — the standard result
+that event times are i.i.d. uniform given the count, with the scoring team independent of the times. So
+the probability is a counting problem, not a simulation: `Σ P(h,a) × f(h,a)`, where `f` is the share of
+the `C(h+a,h)` arrangements with no run of three. `f` comes from a dynamic program **verified against
+brute-force enumeration for every score up to 8–8**.
+
+Settling it is the part that cannot be done. It needs the order the goals arrived in, and only the final
+and half-time scores are stored. So it ships display-only:
+
+- Visible on the match page and usable in the odds builder, as asked.
+- `marketHit` returns null for it — always, on any result — so the accuracy ledger counts it as
+  unscoreable rather than silently as a miss.
+- Excluded from the Top 50 **even when selected by name**, unlike the draw. A ranked list whose entries
+  can never be scored would dilute the track record beneath it, and that record is the one number here
+  that has to mean something.
+- The match page says so plainly, each cell is marked "unscored" where a hit or miss would go, and a leg
+  of it in the builder warns that the slip will show it as unknown.
+
+One thing worth recording: while checking the dynamic program, my own hand-worked expectation for a 4–1
+scoreline was wrong and the code was right — `HHAHH` has no run longer than two, so 1 of the 5
+arrangements survives, not 0. The brute-force comparison is what is being trusted here, not intuition.
+
 ## 0.13.0 — `npm run diagnose`, and the blank-site-after-install gap
 
 A fresh install with the key added afterwards came up completely blank, with nothing anywhere saying why.

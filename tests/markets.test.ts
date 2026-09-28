@@ -5,7 +5,9 @@ import {
   type MarketGroup,
 } from "@/lib/markets";
 import { tipsFor, MIN_P } from "@/lib/top";
+import { marketHit } from "@/lib/markets";
 import { apiFootballKey, quoteFor } from "@/lib/odds";
+import { noRunShare, noThreeInARow, noWinByTwo, notBothHalvesOver15, scoreMatrix, winByAtLeast } from "@/lib/model/dixonColes";
 import { valueTips } from "@/lib/value";
 
 /** A prediction with every optional market present, so the catalogue can be exercised whole. */
@@ -149,5 +151,113 @@ describe("corner odds could never match a corner tip", () => {
     const tips = valueTips(pred(), { "shots_over@25.5": { odds: 2, best: 2, books: 3 } }, "Home", "Away");
     // The quote can be honoured if one ever arrives; what is absent is the parser mapping, not the path.
     expect(tips.some((t) => t.key === "shots_over@25.5")).toBe(true);
+  });
+});
+
+describe("the three shape markets", () => {
+  const shaped = (over: Partial<Prediction> = {}) =>
+    pred({ calNoRun3: 0.81, calNoBothHalvesOver15: 0.85, calNoWinBy2: 0.66, ...over } as Partial<Prediction>);
+
+  it("appears in the catalogue, with the run market flagged unverifiable", () => {
+    const ms = allMarkets(shaped(), "Home", "Away");
+    const byKey = new Map(ms.map((m) => [m.key, m]));
+    expect(byKey.get("no_both_halves_over15")?.group).toBe("halves");
+    expect(byKey.get("no_win_by2")?.group).toBe("hcp");
+    expect(byKey.get("no_run3")?.group).toBe("shape");
+    expect(byKey.get("no_run3")?.unverifiable).toBe(true);
+    // Only that one. Flagging anything else would quietly drop a scoreable market from the record.
+    expect(ms.filter((m) => m.unverifiable).map((m) => m.key)).toEqual(["no_run3"]);
+  });
+
+  it("scores the two that can be settled from a stored result", () => {
+    // 2-1 with a 1-0 half-time: margin of one, and the second half had 2 goals but the first had 1.
+    const r = { h: 2, a: 1, hh: 1, ha: 0 };
+    expect(marketHit("no_win_by2", r)).toBe(true);
+    expect(marketHit("no_both_halves_over15", r)).toBe(true);
+    // 3-0 at 0-0 half-time: won by 3, and only the second half went over 1.5.
+    expect(marketHit("no_win_by2", { h: 3, a: 0, hh: 0, ha: 0 })).toBe(false);
+    // 2-2 from 1-1: both halves produced two goals, so this one fails.
+    expect(marketHit("no_both_halves_over15", { h: 2, a: 2, hh: 1, ha: 1 })).toBe(false);
+  });
+
+  it("cannot score the half market without a half-time score", () => {
+    expect(marketHit("no_both_halves_over15", { h: 4, a: 0 })).toBeNull();
+  });
+
+  it("never scores the run market, whatever the result", () => {
+    // The order the goals arrived in is not stored, so there is no result that could settle it.
+    expect(marketHit("no_run3", { h: 3, a: 0, hh: 2, ha: 0 })).toBeNull();
+    expect(marketHit("no_run3", { h: 0, a: 0, hh: 0, ha: 0 })).toBeNull();
+  });
+
+  it("keeps the unscoreable market out of every ranked list", () => {
+    /*
+     * The point of the exclusion: a tip that can never be scored would sit in the Top 50's track record
+     * as a permanent blank, and the accuracy ledger counts what it can score. Leaving it in would
+     * quietly dilute the one number in this app that has to mean something.
+     */
+    expect(tipsFor(shaped(), "Home", "Away").some((t) => t.key === "no_run3")).toBe(false);
+    // Not even when asked for by name, unlike the draw.
+    expect(tipsFor(shaped(), "Home", "Away", "k:no_run3")).toEqual([]);
+    expect(tipsFor(shaped(), "Home", "Away", "shape")).toEqual([]);
+  });
+
+  it("still ranks the two scoreable ones", () => {
+    expect(tipsFor(shaped(), "Home", "Away", "k:no_win_by2").map((t) => t.key)).toEqual(["no_win_by2"]);
+    expect(tipsFor(shaped(), "Home", "Away", "k:no_both_halves_over15").map((t) => t.key)).toEqual(["no_both_halves_over15"]);
+  });
+
+  it("offers the two scoreable ones as Top 50 filters, and not the third", () => {
+    const offered = MARKET_OPTIONS.map((o) => o.value);
+    expect(offered).toContain("k:no_win_by2");
+    expect(offered).toContain("k:no_both_halves_over15");
+    expect(offered).not.toContain("k:no_run3");
+  });
+
+  it("leaves them out entirely when the model did not produce them", () => {
+    const ms = allMarkets(pred({ calNoRun3: null, calNoBothHalvesOver15: null, calNoWinBy2: null } as unknown as Partial<Prediction>), "Home", "Away");
+    expect(ms.some((m) => m.group === "shape")).toBe(false);
+    expect(ms.some((m) => m.key === "no_win_by2")).toBe(false);
+  });
+});
+
+describe("the shape markets are exact, not approximated", () => {
+  const m = scoreMatrix(1.5, 1.2, 0);
+
+  it("agrees with brute-force enumeration of goal orderings", () => {
+    // Verified in full against enumeration for every score up to 8-8; these are the spot checks.
+    expect(noRunShare(3, 0)).toBe(0);            // HHH is the only arrangement
+    expect(noRunShare(2, 2)).toBe(1);            // no arrangement of 2 and 2 can make a run of 3
+    expect(noRunShare(3, 1)).toBeCloseTo(0.5, 12);
+    expect(noRunShare(4, 1)).toBeCloseTo(0.2, 12); // only HHAHH survives
+    expect(noRunShare(0, 0)).toBe(1);
+  });
+
+  it("matches the independently computed figure for known rates", () => {
+    expect(noThreeInARow(m)).toBeCloseTo(0.808, 3);
+    expect(noThreeInARow(scoreMatrix(3.0, 0.5, 0))).toBeCloseTo(0.487, 3);
+  });
+
+  it("is the exact complement of winning by two or more", () => {
+    const by2 = winByAtLeast(m, 2);
+    expect(noWinByTwo(m)).toBeCloseTo(1 - (by2.home + by2.away), 12);
+  });
+
+  it("cannot have both halves over 1.5 under four goals", () => {
+    // It takes two in each half, so any total below four satisfies the market by construction.
+    const low = scoreMatrix(0.25, 0.2, 0);
+    expect(notBothHalvesOver15(low, 0.45)).toBeGreaterThan(0.99);
+    // And a high-scoring game is where it becomes a real question.
+    expect(notBothHalvesOver15(scoreMatrix(2.5, 2.0, 0), 0.45)).toBeLessThan(0.7);
+  });
+
+  it("returns a probability for every market, on any rates", () => {
+    for (const [lh, la] of [[0.1, 0.1], [4, 3], [1, 1]] as [number, number][]) {
+      const mm = scoreMatrix(lh, la, 0);
+      for (const v of [noThreeInARow(mm), noWinByTwo(mm), notBothHalvesOver15(mm, 0.45)]) {
+        expect(v).toBeGreaterThanOrEqual(0);
+        expect(v).toBeLessThanOrEqual(1);
+      }
+    }
   });
 });

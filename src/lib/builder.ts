@@ -12,6 +12,8 @@
  */
 export interface Candidate {
   matchId: string; league: string; startMs: number; match: string; label: string; market: string; group: string;
+  /** True when the outcome cannot be settled from stored data, so a slip holding it is partly unscored. */
+  unverifiable?: true;
   p: number; odds: number; real: boolean; band: string;
   trust?: number; // ledger-based reliability multiplier (1 = as advertised)
 }

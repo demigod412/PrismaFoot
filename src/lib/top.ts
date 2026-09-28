@@ -13,7 +13,14 @@ import { allMarkets, marketHit, selectorKey, selectorMatches, type MarketKey, ty
 export const TOP_N = 50;
 export const MIN_P = 0.55;
 export const WINDOWS = [1, 2, 3, 4, 5, 6, 7] as const;
-const EXCLUDED: MarketKey[] = ["draw"];
+/*
+ * Out of every ranked list.
+ *
+ * "draw" because it would never be anyone's strongest tip; "no_run3" because it cannot be settled, and a
+ * tip list whose entries can never be scored would quietly poison the track record underneath it — the
+ * one number in this app that has to mean something.
+ */
+const EXCLUDED: MarketKey[] = ["draw", "no_run3"];
 
 /** Max tips per capped category in the mixed list. */
 export const CAPS = { dc: 5, under45: 5, hcp: 5, halfU25: 2 } as const;
@@ -40,9 +47,11 @@ export const strengthOf = (prob: number, confidence: number) => prob * (0.85 + 0
 export function tipsFor(p: Prediction, home: string, away: string, sel?: MarketSelector): Tip[] {
   if (p.band === "LOW") return [];
   const named = selectorKey(sel);
+  // An explicit ask overrides the exclusion — except for the unscoreable one, which has no business in
+  // a ranked list however deliberately it is requested.
   const asksForLines = named === "corners_over" || named === "corners_under" || named === "shots_over" || named === "shots_under";
   return allMarkets(p, home, away)
-    .filter((m) => (!EXCLUDED.includes(m.key) || named === m.key)
+    .filter((m) => (!EXCLUDED.includes(m.key) || (named === m.key && !m.unverifiable))
       && (!m.alt || m.strong || asksForLines)
       && selectorMatches(sel, m) && m.p >= MIN_P)
     .map((m) => ({ ...m, strength: strengthOf(m.p, p.confidence) }))

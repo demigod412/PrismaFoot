@@ -59,6 +59,8 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
         matchId: f.id, league: f.league.name, startMs: +f.kickoffUtc, match: `${H} v ${A}`, label: m.label, market: m.key,
         group: m.group, p: m.p, odds: price && price > 1.01 ? price : 1 / m.p, real: !!price, band: p.band,
         trust: trustFor(trust, m.key),
+        // Allowed in a slip, but marked: a leg that cannot be settled leaves the slip partly unscored.
+        unverifiable: m.unverifiable,
       };
     });
   });
@@ -155,7 +157,7 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
           {slips.map((s, i) => (
             <BuilderResult key={i} index={i} target={target}
               slip={{ odds: s.odds, p: s.p, adjusted: s.adjusted, real: s.real, edge: s.edge,
-                legs: s.legs.map((l) => ({ fixtureId: l.matchId, market: l.market, label: l.label, match: l.match, league: l.league, p: l.p, odds: l.odds, real: l.real, group: GROUP_LABEL[l.group as keyof typeof GROUP_LABEL] ?? l.group, when: fmtIn(new Date(l.startMs), zone, "EEE HH:mm") })) }} />
+                legs: s.legs.map((l) => ({ fixtureId: l.matchId, market: l.market, label: l.label, unverifiable: l.unverifiable, match: l.match, league: l.league, p: l.p, odds: l.odds, real: l.real, group: GROUP_LABEL[l.group as keyof typeof GROUP_LABEL] ?? l.group, when: fmtIn(new Date(l.startMs), zone, "EEE HH:mm") })) }} />
           ))}
         </div>
       )}

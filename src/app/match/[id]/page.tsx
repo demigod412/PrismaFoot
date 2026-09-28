@@ -7,6 +7,7 @@ import { tz } from "@/lib/tz";
 import { ProbBar } from "@/components/ProbBar";
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
 import { allMarkets, marketHit, GROUP_LABEL, type MarketGroup } from "@/lib/markets";
+import { TOP_N } from "@/lib/top";
 import { bestTip } from "@/lib/top";
 import { AddToSlip } from "@/components/AddToSlip";
 import { valueTips, VALUE } from "@/lib/value";
@@ -186,6 +187,8 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                               </div>
                               <div className="flex items-baseline justify-between">
                                 <span className={cn("num text-sm", m.p >= 0.6 ? "text-edge" : "text-slate-100")}>{pct(m.p)}</span>
+                                {/* An unscoreable market must never show blank where a hit/miss would go. */}
+                                {m.unverifiable && <span className="text-[10px] text-amber" title="Settling this needs the order the goals arrived in, which is not stored">unscored</span>}
                                 {h != null && <span className={cn("text-[10px]", h ? "text-edge" : "text-miss")}>{h ? "hit" : "miss"}</span>}
                                 {h == null && oddsOf(m.key) && <span className={cn("num text-[10px]", m.p * oddsOf(m.key)! - 1 >= 0.03 ? "text-edge" : "text-slate-500")} title="median bookmaker odds">@{oddsOf(m.key)!.toFixed(2)}</span>}
                               </div>
@@ -194,6 +197,14 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                         })}
                       </div>
                     ) : <p className="text-xs text-slate-500">{g === "corners" || g === "shots" ? "Needs match statistics history (API-Football). Appears once 80+ league matches have stats." : "Not available for this match yet."}</p>}
+                    {rows.some((m) => m.unverifiable) && (
+                      <p className="mt-2 text-[11px] leading-relaxed text-amber">
+                        The probability here is exact, but <b>this market can never be scored</b>: settling
+                        it needs the order the goals arrived in, and only the final and half-time scores are
+                        stored. It is shown for reading and is kept out of the Top {TOP_N} and the accuracy
+                        ledger, so it cannot flatter or spoil the record either way.
+                      </p>
+                    )}
                     {g === "corners" && p.expCorners != null && <p className="num mt-1 text-[10px] text-slate-500">expected corners {p.expCorners.toFixed(1)}</p>}
                     {g === "shots" && p.expShots != null && <p className="num mt-1 text-[10px] text-slate-500">expected total shots {p.expShots.toFixed(1)}</p>}
                     {g === "hcp" && (

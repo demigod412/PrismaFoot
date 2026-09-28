@@ -182,7 +182,7 @@ export async function writePrediction(db: PrismaClient, ctx: LeagueContext, fx: 
   if (!corners) out.dataFlags.push("no_corner_data");
   if (!shots) out.dataFlags.push("no_shot_data");
   // New revision only when inputs changed, or corners/shots became available
-  if (prev && prev.inputsHash === out.inputsHash && (prev.expCorners != null) === !!corners && (prev.expShots != null) === !!shots && (prev.cornerLines != null) === !!corners && prev.calHtDraw != null) return false;
+  if (prev && prev.inputsHash === out.inputsHash && (prev.expCorners != null) === !!corners && (prev.expShots != null) === !!shots && (prev.cornerLines != null) === !!corners && prev.calHtDraw != null && prev.calNoRun3 != null) return false;
 
   await db.prediction.create({ data: {
     fixtureId: fx.id, modelVersion: out.modelVersion, revision: (prev?.revision ?? 0) + 1, inputsHash: out.inputsHash,
@@ -195,6 +195,7 @@ export async function writePrediction(db: PrismaClient, ctx: LeagueContext, fx: 
     topScorelines: out.topScorelines as unknown as Prisma.InputJsonValue, matrix: out.matrix,
     rawHomeBy2: out.rawBy2.home, rawAwayBy2: out.rawBy2.away, calHomeBy2: capLow(out.calBy2.home), calAwayBy2: capLow(out.calBy2.away),
     calH1Under15: out.halves.h1u15, calH1Under25: out.halves.h1u25, calH2Under25: out.halves.h2u25, h1Share: out.halves.share, calHtDraw: out.halves.htDraw,
+    calNoRun3: out.shapes.noRun3, calNoBothHalvesOver15: out.shapes.noBothHalvesOver15, calNoWinBy2: out.shapes.noWinBy2,
     calHomeOrOver25: out.winOrOver.cal.home, calAwayOrOver25: out.winOrOver.cal.away,
     ...(corners ? { cornersLine: corners.main, expCorners: corners.expected, rawCornersOver: mainOver(corners), calCornersOver: capLow(mainOver(corners)),
       cornerLines: corners.rows.map((r) => ({ l: r.line, o: capLow(r.over) })) as unknown as Prisma.InputJsonValue } : {}),

@@ -6,7 +6,7 @@ import type { MarketKey } from "@/lib/markets";
 import { CopyButton } from "./CopyButton";
 import { cn, pct } from "./ui";
 
-export interface BuilderLeg { fixtureId: string; market: string; label: string; match: string; league: string; p: number; odds: number; real: boolean; group: string; when: string }
+export interface BuilderLeg { fixtureId: string; market: string; label: string; match: string; league: string; p: number; odds: number; real: boolean; group: string; when: string; unverifiable?: true }
 export interface BuilderSlip { odds: number; p: number; adjusted: number; edge: number; real: boolean; legs: BuilderLeg[] }
 
 /** One generated combination: legs, price, honest chance, and the three ways to use it. */
@@ -45,6 +45,8 @@ export function BuilderResult({ slip, index, target }: { slip: BuilderSlip; inde
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm text-slate-100">{l.label}</div>
               <div className="truncate text-[11px] text-slate-500">{l.match} · {l.league} · <span className="num">{l.when}</span> · {l.group}</div>
+              {/* Allowed in a slip, but a leg nobody can settle leaves the slip's own result incomplete. */}
+              {l.unverifiable && <div className="text-[11px] text-amber">This leg can never be scored — the slip will show it as unknown once the match finishes.</div>}
             </div>
             <div className="num text-right text-xs">
               <div className="text-slate-200">{pct(l.p)}</div>
