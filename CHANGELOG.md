@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.14.3 — repredict counted its own work wrong and would never have finished
+
+The filter picking competitions to re-price was `predictions: { some: { calNoRun3: null } }`. Predictions
+are **append-only revisions**, so every earlier revision keeps that column null for good — which means a
+fixture matched forever, the candidate list never shrank, and each run returned the same twenty
+competitions. It correctly skipped almost everything the second time (`0 re-priced` against 40 upcoming),
+so no harm was done; it simply could not have reached the end.
+
+What identifies work remaining is a fixture with **no** revision carrying the markets:
+`predictions: { none: { calNoRun3: { not: null } } }`.
+
+Progress is now reported in fixtures rather than competitions, counted from the database before and after
+each batch rather than subtracted from a list — the query is the only honest measure of what is left. The
+figure beside each competition is the fixtures still missing the markets, not its total size.
+
 ## 0.14.2 — a sync that cannot take the machine down with it
 
 The box is 1.9GB of RAM shared between three Next apps and Postgres. One process fitting 263 leagues

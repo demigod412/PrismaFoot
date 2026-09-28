@@ -35,22 +35,28 @@ const DEFAULT_BATCH = 20;
    * Only leagues with an upcoming fixture whose newest prediction is missing the new markets. Ordered
    * with the busiest first, so the most visible competitions are filled in the earliest batches.
    */
+  /*
+   * `none: { calNoRun3: { not: null } }`, not `some: { calNoRun3: null }`.
+   *
+   * Predictions are append-only revisions, so every earlier revision keeps the column null for good. The
+   * obvious filter therefore matched every fixture that had ever been priced, the candidate list never
+   * shrank, and each run handed back the same twenty competitions — correctly skipping most of them, and
+   * never finishing. What identifies work remaining is a fixture with NO revision carrying the markets.
+   */
+  const needsWork = {
+    status: "SCHEDULED" as const,
+    kickoffUtc: { gt: new Date() },
+    predictions: { none: { calNoRun3: { not: null } } },
+  };
   const candidates = await db.league.findMany({
-    where: {
-      provider,
-      fixtures: {
-        some: {
-          status: "SCHEDULED",
-          kickoffUtc: { gt: new Date() },
-          predictions: { some: { calNoRun3: null } },
-        },
-      },
-    },
+    where: { provider, fixtures: { some: needsWork } },
     select: {
       id: true, name: true, country: true,
-      _count: { select: { fixtures: { where: { status: "SCHEDULED", kickoffUtc: { gt: new Date() } } } } },
+      // Fixtures still lacking the markets, so the figure beside each league is work left, not total size.
+      _count: { select: { fixtures: { where: needsWork } } },
     },
   });
+  const fixturesLeft = await db.fixture.count({ where: { provider, ...needsWork } });
   candidates.sort((a, b) => b._count.fixtures - a._count.fixtures);
 
   if (!candidates.length) {
@@ -59,7 +65,7 @@ const DEFAULT_BATCH = 20;
   }
 
   const todo = candidates.slice(0, batch);
-  console.log(`${candidates.length} competition(s) still to re-price. Doing ${todo.length} now, no provider requests.\n`);
+  console.log(`${fixturesLeft} fixture(s) across ${candidates.length} competition(s) still to re-price. Doing ${todo.length} now, no provider requests.\n`);
 
   let written = 0;
   for (const [i, lg] of todo.entries()) {
@@ -68,16 +74,17 @@ const DEFAULT_BATCH = 20;
     try {
       const r = await rateAndPredictLeague(db, lg.id);
       written += r.predictions;
-      console.log(`  [${i + 1}/${todo.length}] ${label} — ${r.predictions} re-priced (${lg._count.fixtures} upcoming)`);
+      console.log(`  [${i + 1}/${todo.length}] ${label} — ${r.predictions} re-priced (${lg._count.fixtures} were missing the markets)`);
     } catch (e) {
       // One league's history being unfittable must not end the batch.
       console.log(`  [${i + 1}/${todo.length}] ${label} — FAILED: ${(e as Error).message.slice(0, 120)}`);
     }
   }
 
-  const left = candidates.length - todo.length;
-  console.log(`\n${written} prediction(s) rewritten.`);
+  // Counted again rather than subtracted: the only honest measure of progress is the query itself.
+  const left = await db.fixture.count({ where: { provider, ...needsWork } });
+  console.log(`\n${written} prediction(s) rewritten. ${fixturesLeft - left} fixture(s) now carry the markets.`);
   console.log(left
-    ? `${left} competition(s) left — run it again: sudo -u ubuntu npm run repredict`
-    : "All done. The new markets now appear on every upcoming fixture that had a prediction.");
+    ? `${left} fixture(s) left — run it again: sudo -u ubuntu npm run repredict`
+    : "All done. The new markets now appear on every upcoming fixture.");
 })().catch((e) => { console.error(e); process.exitCode = 1; }).finally(() => db.$disconnect());
