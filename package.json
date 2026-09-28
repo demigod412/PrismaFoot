@@ -1,6 +1,6 @@
 {
   "name": "pitchedge",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -16,7 +16,8 @@
     "ingest": "node --env-file=.env --conditions=react-server --import tsx scripts/ingest.ts",
     "selfcheck": "node --env-file=.env --conditions=react-server --import tsx scripts/selfcheck.ts",
     "leaguecheck": "node --env-file=.env --conditions=react-server --import tsx scripts/leaguecheck.ts",
-    "diagnose": "node --env-file=.env --conditions=react-server --import tsx scripts/diagnose.ts"
+    "diagnose": "node --env-file=.env --conditions=react-server --import tsx scripts/diagnose.ts",
+    "repredict": "node --env-file=.env --conditions=react-server --import tsx scripts/repredict.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.14.1 — a sync that finishes, and filling new columns without one
+
+### Fix: nothing bounded a sync run
+Every three-hourly sync attempted **all 263 competitions**, and the least-recently-synced ordering was
+only ever a recovery aid for a run that died partway. On a small box that is what made it crawl: in the
+last run, leagues taking two to three seconds each early on were taking **twenty-nine seconds** by the
+hundred-and-twenty-eighth, and the pass never finished — taking the site down with it.
+
+`MAX_LEAGUES_PER_SYNC` (default **80**) turns that into a rotation. A full cycle completes over three or
+four runs, roughly half a day, which is ample for fixtures a week out — and it cuts provider requests per
+run in the same proportion. The report says how many were deferred, so a partial pass reads as a
+rotation rather than a failure.
+
+### New: `npm run repredict`
+A new market means new columns, and existing predictions have them empty. `npm run ingest` fills them —
+but it also re-sweeps every competition from the provider, hundreds of requests to re-download fixtures
+that were already there, which is what stalled the box.
+
+Nothing about a new market needs the provider. The probabilities come from stored ratings and stored
+fixtures, so this refits each league **from the database** and rewrites only the predictions for its
+upcoming fixtures. No network calls at all.
+
+It works in batches of 20 by default, because fitting a league holds its history in memory and 263 in one
+process is the problem described above. Run it until it reports nothing left; it is idempotent, since a
+prediction already carrying the new markets is skipped by the revision check. Busiest competitions first,
+so the leagues people actually look at fill in on the earliest batch.
+
 ## 0.14.0 — three markets read off the shape of the scoreline
 
 All three are exact given the model: sums over cells of the matrix it already produces, with no new

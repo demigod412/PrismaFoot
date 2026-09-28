@@ -50,9 +50,27 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
       if (!e || e.pool) return false;
       return e.focus === "europe-strong" || e.focus === "england" || (e.tier ?? 1) === 1;
     };
-    const leagues = (await p.getLeagues()).filter((l) => entryFor(allow, l))
+    /*
+     * A bounded number of leagues per run, stalest first.
+     *
+     * The ordering above was only ever a recovery aid — a run that died partway resumed where it left
+     * off. But nothing bounded a run, so every three-hourly sync attempted all 263 competitions, and on
+     * a small box that is what made it crawl: leagues taking two seconds each at the start were taking
+     * thirty by the hundred-and-thirtieth, and a full pass stopped finishing at all.
+     *
+     * Capping it turns that into a rotation. With the default, a complete cycle takes three or four runs
+     * — about half a day — which is ample for fixtures a week out, and it cuts the provider requests per
+     * run in the same proportion. Raise MAX_LEAGUES_PER_SYNC on a bigger machine.
+     */
+    const maxLeagues = Number(process.env.MAX_LEAGUES_PER_SYNC) || 80;
+    const eligible = (await p.getLeagues()).filter((l) => entryFor(allow, l))
       .sort((x, y) => Number(!!entryFor(allow, x)?.pool) - Number(!!entryFor(allow, y)?.pool)
         || (lastSynced.get(x.externalId) ?? 0) - (lastSynced.get(y.externalId) ?? 0));
+    const leagues = eligible.slice(0, maxLeagues);
+    if (eligible.length > leagues.length) {
+      report.deferred = `${eligible.length - leagues.length} competition(s) left for the next run (cap ${maxLeagues}, stalest first)`;
+      console.error(`  ${leagues.length} of ${eligible.length} competitions this run; the rest follow next run.`);
+    }
     const labelCount = new Map<string, number>();
     for (const l of leagues) { const k = `${l.country} · ${l.name}`; labelCount.set(k, (labelCount.get(k) ?? 0) + 1); }
     const label = (l: { name: string; country: string; externalId: string }) => {
