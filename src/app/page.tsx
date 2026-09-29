@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getBoard, getLeagues } from "@/lib/queries";
+import { getBoardWithMatrix, getLeagues } from "@/lib/queries";
 import { dayKeyIn, dayStart, fmtIn, isDayKey } from "@/lib/time";
 import { tz } from "@/lib/tz";
 import { prisma } from "@/lib/db";
@@ -37,7 +37,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ d
   const date = isDayKey(sp.date) ? sp.date : dayKeyIn(now, zone);
   const market = (MARKETS.find((m) => m.slug === sp.market)?.slug ?? "all") as ScannerSlug;
   const from = dayStart(date, zone);
-  const [leagues, all] = await Promise.all([getLeagues(), getBoard({ from, to: new Date(from.getTime() + 86_400_000), leagueId: sp.league })]);
+  // One day of fixtures, so the scoreline grid is affordable here and every scanner works on the board.
+  const [leagues, all] = await Promise.all([getLeagues(), getBoardWithMatrix({ from, to: new Date(from.getTime() + 86_400_000), leagueId: sp.league })]);
   const { provider } = await dataMode();
   /*
    * Nearest day that actually has fixtures for this filter, looking forward first and then back.

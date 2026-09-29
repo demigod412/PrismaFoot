@@ -1,5 +1,13 @@
 import type { Prediction } from "@prisma/client";
 
+/**
+ * The prediction fields the market catalogue reads: everything except the four heavy Json blobs.
+ *
+ * Written as an exclusion rather than a list of the twenty-odd `cal*` columns, so a market added later
+ * is covered automatically. A full row satisfies it too, so nothing that already worked stops working.
+ */
+export type MarketSource = Omit<Prediction, "matrix" | "topScorelines" | "rationale" | "features">;
+
 /** Every market the app offers (no correct score). All come from calibrated model probabilities. */
 export type MarketKey =
   | "home" | "draw" | "away"
@@ -129,7 +137,7 @@ function lineMarkets(base: "corners" | "shots", rows: LadderRow[], main: number 
 }
 
 /** All markets for one match. Corners/shots only when the model has enough stats history. */
-export function allMarkets(p: Prediction, home: string, away: string): MarketTip[] {
+export function allMarkets(p: MarketSource, home: string, away: string): MarketTip[] {
   const out: MarketTip[] = [
     { key: "home", group: "win", label: `${home} to win`, short: "Home win", p: p.calHome },
     { key: "away", group: "win", label: `${away} to win`, short: "Away win", p: p.calAway },

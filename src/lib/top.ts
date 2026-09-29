@@ -1,5 +1,5 @@
 import type { Prediction } from "@prisma/client";
-import { allMarkets, marketHit, selectorKey, selectorMatches, type MarketKey, type MarketSelector, type MarketTip, type MatchResult } from "./markets";
+import { allMarkets, marketHit, selectorKey, selectorMatches, type MarketKey, type MarketSelector, type MarketSource, type MarketTip, type MatchResult } from "./markets";
 
 /*
  * Top tips: one tip per match (its single strongest market within the chosen group), ranked by strength.
@@ -44,7 +44,7 @@ export const strengthOf = (prob: number, confidence: number) => prob * (0.85 + 0
  *     near-identical tips. Asking for that base and side explicitly lifts that too, since the whole
  *     point of choosing it is to see the lines.
  */
-export function tipsFor(p: Prediction, home: string, away: string, sel?: MarketSelector): Tip[] {
+export function tipsFor(p: MarketSource, home: string, away: string, sel?: MarketSelector): Tip[] {
   if (p.band === "LOW") return [];
   const named = selectorKey(sel);
   // An explicit ask overrides the exclusion — except for the unscoreable one, which has no business in
@@ -64,7 +64,7 @@ export function tipsFor(p: Prediction, home: string, away: string, sel?: MarketS
  * They stay visible in the match's "All markets" card and (capped) in the Top 50.
  */
 export const HEADLINE_EXCLUDED = (t: MarketTip) => t.group === "dc" || t.key === "under45" || t.key === "h1_under25" || t.key === "h2_under25";
-export function bestTip(p: Prediction, home: string, away: string, sel?: MarketSelector): Tip | null {
+export function bestTip(p: MarketSource, home: string, away: string, sel?: MarketSelector): Tip | null {
   return tipsFor(p, home, away, sel).find((t) => sel || !HEADLINE_EXCLUDED(t)) ?? null;
 }
 

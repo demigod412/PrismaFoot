@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { dataMode } from "@/lib/mode";
-import { getBoard } from "@/lib/queries";
+import { BUILDER_LIMIT, getBoard } from "@/lib/queries";
 import { allMarkets, GROUP_LABEL, marketHit, type MarketKey } from "@/lib/markets";
 import { buildSlips, legHint, oneInN, SAFE_MAX_LEG_ODDS, type Candidate } from "@/lib/builder";
 import { getSetting } from "@/lib/secrets";
@@ -43,7 +43,14 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
   // One small stored row rather than re-reading the ledger on every target change.
   const trust = await getSetting<MarketTrust>(TRUST_SETTING, {});
   const now = new Date();
-  const fixtures = await getBoard({ from: now, to: new Date(now.getTime() + Math.min(days, FIXTURE_WINDOW_DAYS) * DAY) });
+  /*
+   * Bounded, in kickoff order, so a long window trims the furthest-away fixtures rather than failing.
+   * Without this the fourteen-day view fanned every fixture in every competition out into candidate
+   * legs at once, which is one of the two requests that were getting the server OOM-killed.
+   */
+  const fixtures = await getBoard({
+    from: now, to: new Date(now.getTime() + Math.min(days, FIXTURE_WINDOW_DAYS) * DAY), take: BUILDER_LIMIT,
+  });
   const quotes = await prisma.oddsQuote.findMany({ where: { fixtureId: { in: fixtures.map((f) => f.id) } }, orderBy: { fetchedAt: "desc" } });
 
   // Every market of every match is a candidate: main lines, alternative lines and specials.

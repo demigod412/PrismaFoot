@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getBoard } from "@/lib/queries";
+import { BLEND_LIMIT, BOARD_LIMIT, getBoard, getBoardWithMatrix } from "@/lib/queries";
 import { FIXTURE_WINDOW_DAYS } from "@/lib/window";
-import { SCANNERS, scan, DEFAULT_FLOORS, type ScannerFloors, type ScannerSlug } from "@/lib/scanners";
+import { NEEDS_MATRIX, SCANNERS, scan, DEFAULT_FLOORS, type ScannerFloors, type ScannerSlug } from "@/lib/scanners";
 import { getSetting } from "@/lib/secrets";
 import { allMarkets } from "@/lib/markets";
 import { FixtureList } from "@/components/FixtureList";
@@ -20,7 +20,16 @@ export default async function ScannerPage({ params, searchParams }: { params: Pr
   const floors = { ...DEFAULT_FLOORS, ...(await getSetting<Partial<ScannerFloors>>("scannerFloors", {})) };
   const zone = await tz();
   const now = new Date();
-  const fixtures = (await getBoard({ from: now, to: new Date(now.getTime() + FIXTURE_WINDOW_DAYS * 86_400_000), focus })).filter((f) => f.predictions[0]);
+  /*
+   * Only two scanners read the scoreline grid ("1+" and "Team 2+ goals"), and it is the single biggest
+   * column on a prediction. Everything else gets the lean rows.
+   */
+  const q = {
+    from: now, to: new Date(now.getTime() + FIXTURE_WINDOW_DAYS * 86_400_000), focus,
+    take: def.slug === "blend" ? BLEND_LIMIT : BOARD_LIMIT,
+  };
+  const fixtures = (NEEDS_MATRIX.has(def.slug) ? await getBoardWithMatrix(q) : await getBoard(q))
+    .filter((f) => f.predictions[0]);
   const focusChips = (
     <div data-no-ptr className="mb-4 max-w-xs">
         <FilterSelect label="Competitions" value={focus ?? "all"}

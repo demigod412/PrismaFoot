@@ -6,6 +6,10 @@
 
 generator client {
   provider = "prisma-client-js"
+  // `omit` lets a list query drop the four heavy Json columns (matrix, topScorelines, rationale,
+  // features) without hand-listing every other field — so a column added later is included by default
+  // rather than silently missing from every page.
+  previewFeatures = ["omitApi"]
 }
 
 datasource db {

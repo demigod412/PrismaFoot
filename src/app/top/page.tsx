@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { dataMode } from "@/lib/mode";
-import { withLatestPrediction } from "@/lib/queries";
+import { HEAVY_JSON, withLatestPredictionLean } from "@/lib/queries";
 import { selectTop, tipHit, tipsFor, TOP_N, WINDOWS, CAPS, type Tip } from "@/lib/top";
 import { GROUP_LABEL, MARKET_OPTIONS, marketHit, parseSelector, selectorLabel, type MarketGroup, type MarketKey } from "@/lib/markets";
 import { flatStakeRoi, selectTopValue, valueTips, VALUE, type ValueTip, VALUE_CEILINGS } from "@/lib/value";
@@ -58,7 +58,10 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
 
   const fixtures = await prisma.fixture.findMany({
     where: { provider, status: "SCHEDULED", kickoffUtc: { gt: now, lt: end }, ...(focus ? { league: { focusGroup: focus } } : {}) },
-    include: withLatestPrediction, orderBy: { kickoffUtc: "asc" },
+    // Lean: this page reads probabilities and the two stats lines, never the scoreline grid or the
+    // rationale. Seven days across every competition is thousands of rows, and the four Json columns
+    // on each of them were most of the memory a single request asked for.
+    include: withLatestPredictionLean, orderBy: { kickoffUtc: "asc" },
   });
   const names = (f: (typeof fixtures)[number]) => [f.homeTeam.shortName ?? f.homeTeam.name, f.awayTeam.shortName ?? f.awayTeam.name] as const;
 
@@ -97,7 +100,7 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
   const since = new Date(todayStart.getTime() - 7 * DAY);
   const past = await prisma.fixture.findMany({
     where: { provider, status: "FINISHED", homeGoals: { not: null }, kickoffUtc: { gte: since, lt: todayStart }, predictions: { some: { lockedAt: { not: null } } }, ...(focus ? { league: { focusGroup: focus } } : {}) },
-    include: { homeTeam: true, awayTeam: true, predictions: { where: { lockedAt: { not: null } }, take: 1 } },
+    include: { homeTeam: true, awayTeam: true, predictions: { where: { lockedAt: { not: null } }, take: 1, omit: HEAVY_JSON } },
   });
   const pastQuotes = list === "value" ? quoteMaps(
     await prisma.oddsQuote.findMany({ where: { fixtureId: { in: past.map((f) => f.id) } }, orderBy: { fetchedAt: "desc" } }),

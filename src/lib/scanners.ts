@@ -1,5 +1,5 @@
 import type { Prediction } from "@prisma/client";
-import { allMarkets, type MarketKey, type MarketTip } from "./markets";
+import { allMarkets, type MarketKey, type MarketSource, type MarketTip } from "./markets";
 
 export type Market = MarketKey | "btts";
 export interface Pick { market: Market; label: string; p: number }
@@ -53,7 +53,7 @@ export const MARKET_LABEL: Partial<Record<Market, string>> & Record<string, stri
 /** Label for any market key, including per-fixture corner / shot lines ("corners_over@10.5"). */
 export const labelOf = (m: Market) => MARKET_LABEL[m as keyof typeof MARKET_LABEL] ?? String(m).replace(/^(corners|shots)_(over|under)@/, (_x, b: string, s: string) => `${b[0].toUpperCase()}${b.slice(1)} ${s === "over" ? "Over" : "Under"} `);
 
-export function marketP(p: Prediction, m: Market): number {
+export function marketP(p: MarketSource, m: Market): number {
   const dyn = allMarkets(p, "Home", "Away").find((x) => x.key === m);
   if (dyn) return dyn.p;
   switch (m) {
@@ -83,20 +83,30 @@ export function teamAtLeast(matrix: number[][], side: "home" | "away", k: number
   return Math.min(1, s);
 }
 
-export function oneXTwoPick(p: Prediction): Pick & { margin: number } {
+export function oneXTwoPick(p: MarketSource): Pick & { margin: number } {
   const arr: Pick[] = [
     { market: "home", label: "Home", p: p.calHome }, { market: "draw", label: "Draw", p: p.calDraw }, { market: "away", label: "Away", p: p.calAway },
   ].sort((a, b) => b.p - a.p) as Pick[];
   return { ...arr[0], margin: arr[0].p - arr[1].p };
 }
 
-/** Returns the pick a scanner surfaces for a prediction, or null if it doesn't qualify. */
-export function scan(slug: ScannerSlug, p: Prediction, f: ScannerFloors): Pick | null {
-  const m = p.matrix as number[][];
+/** Scanners that read the scoreline grid, so a caller knows when to ask the database for it. */
+export const NEEDS_MATRIX: ReadonlySet<string> = new Set(["1plus", "team2", "all"]);
+
+/**
+ * The pick a scanner surfaces for a prediction, or null if it doesn't qualify.
+ *
+ * `matrix` is optional because list queries omit it — it is the largest column on a prediction and only
+ * two scanners read it. A caller that asks for one of those without loading it gets null rather than a
+ * silently wrong answer computed from an empty grid.
+ */
+export function scan(slug: ScannerSlug, p: MarketSource & { matrix?: unknown }, f: ScannerFloors): Pick | null {
+  const m = (p.matrix ?? null) as number[][] | null;
+  if (NEEDS_MATRIX.has(slug) && slug !== "all" && !m) return null;
   switch (slug) {
     case "all": { const x = oneXTwoPick(p); return x; }
     case "win": { const x = oneXTwoPick(p); return x.market !== "draw" && p.band !== "LOW" && x.margin >= f.winMargin ? x : null; }
-    case "1plus": { const h = teamAtLeast(m, "home", 1), a = teamAtLeast(m, "away", 1);
+    case "1plus": { const h = teamAtLeast(m!, "home", 1), a = teamAtLeast(m!, "away", 1);
       return h >= a ? { market: "home", label: "Home 1+", p: h } : { market: "away", label: "Away 1+", p: a }; }
     case "2plus": case "o15": return p.calOver15 >= f.o15 ? { market: "over15", label: slug === "2plus" ? "2+ goals" : "Over 1.5", p: p.calOver15 } : null;
     case "o25": return p.calOver25 >= f.o25 ? { market: "over25", label: "Over 2.5", p: p.calOver25 } : null;
@@ -124,7 +134,7 @@ export function scan(slug: ScannerSlug, p: Prediction, f: ScannerFloors): Pick |
       return b && b.p >= floor ? { market: b.key, label: b.short, p: b.p } : null;
     }
     case "htdraw": return p.calHtDraw != null && p.calHtDraw >= f.htDraw ? { market: "ht_draw", label: "Draw at half-time", p: p.calHtDraw } : null;
-    case "team2": { const h = teamAtLeast(m, "home", 2), a = teamAtLeast(m, "away", 2);
+    case "team2": { const h = teamAtLeast(m!, "home", 2), a = teamAtLeast(m!, "away", 2);
       const best = h >= a ? { market: "home" as Market, label: "Home 2+ goals", p: h } : { market: "away" as Market, label: "Away 2+ goals", p: a };
       return best.p >= f.team2 ? best : null; }
     case "safe": {

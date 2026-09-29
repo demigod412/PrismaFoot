@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.16.0 — the memory fault: why the site kept dying, and the fix
+
+### What was actually happening
+Not a leak, and not a cron job. `next-server` — the web server itself — was being **OOM-killed while
+serving a single request**, three times, at 875MB, 1.46GB and 1.6GB. No sync or re-price was running at
+the time, and the third app on the box was idle. One page view genuinely asked for a gigabyte and a half.
+
+### Why one request could cost that much
+A stored prediction carries four JSON columns: `matrix` (the 11x11 scoreline grid), `topScorelines`,
+`rationale` and `features`. On a single match page they are the whole point. In a *list* they are dead
+weight — and three pages were loading them for every fixture in a multi-week window:
+
+| Page | What it loaded | At 263 competitions |
+| --- | --- | --- |
+| Scanner | every fixture in 21 days, full rows | ~10,000 rows x 4 blobs |
+| Top 50 | up to 7 days upcoming + 7 days settled, full rows | thousands, twice over |
+| Odds builder | up to 14 days, then ~20 candidate legs each | a quarter of a million objects |
+
+This was survivable at twenty leagues. The allowlist is now 263, so the same code asks for fifty times as
+much — the pages did not change, the amount of football behind them did.
+
+### The fix
+**Lists no longer load the blobs.** A new lean include drops all four columns; the single-match page still
+gets them, because it is one row. Written as an exclusion rather than a list of the twenty-odd `cal*`
+columns, so a market added later is carried automatically instead of silently missing everywhere.
+
+**The two scanners that genuinely read the scoreline grid** ("1+ goals" and "Team 2+ goals") ask for it
+explicitly, and a scanner handed rows without one now returns nothing rather than a wrong answer computed
+from an empty grid.
+
+**Every list query has a ceiling**, in kickoff order, so a long window trims the furthest-away fixtures
+instead of failing: 2,500 fixtures for a scanner, 600 for the odds builder (which multiplies each one into
+twenty-odd legs), 250 for the blend builder (which serialises every candidate into the HTML). All three are
+overridable with `BOARD_LIMIT`, `BUILDER_LIMIT` and `BLEND_LIMIT` in `.env`.
+
+Nothing visible changes. The same fixtures, the same probabilities, the same lists — the server simply
+stops asking the database for four megabytes of scoreline grids it was never going to display.
+
+### If you set FIXTURE_WINDOW_DAYS=7 as a stopgap
+You can take it back out after deploying this. It was buying time by shrinking the window; the window is
+no longer what costs the memory.
+
 ## 0.15.0 — hourly sync, the new markets in the scanners, and what Best value can actually show
 
 ### Every competition refreshed about every four hours

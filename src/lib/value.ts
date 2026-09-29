@@ -1,5 +1,5 @@
 import type { Prediction } from "@prisma/client";
-import { allMarkets, selectorMatches, type MarketSelector, type MarketTip } from "./markets";
+import { allMarkets, selectorMatches, type MarketSelector, type MarketSource, type MarketTip } from "./markets";
 import { quoteFor, type QuoteMap } from "./odds";
 
 /*
@@ -17,7 +17,7 @@ export const VALUE_CEILINGS = [2, 3, 6] as const;
 export const isStarred = (t: { edge: number; band: string; p: number }) => t.band === "HIGH" && t.edge >= 0.08 && t.p >= 0.5;
 export interface ValueTip extends MarketTip { odds: number; best: number; books: number; edge: number; fair: number; star?: boolean }
 
-export function valueTips(p: Prediction, quotes: QuoteMap, home: string, away: string, opts: { maxOdds?: number; market?: MarketSelector } = {}): ValueTip[] {
+export function valueTips(p: MarketSource, quotes: QuoteMap, home: string, away: string, opts: { maxOdds?: number; market?: MarketSelector } = {}): ValueTip[] {
   if (p.band === "LOW") return [];
   return allMarkets(p, home, away).flatMap((m) => {
     if (!selectorMatches(opts.market, m)) return [];
