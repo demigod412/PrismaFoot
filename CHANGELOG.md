@@ -1,8 +1,50 @@
 # Changelog
 
-## 0.16.0 — the memory fault: why the site kept dying, and the fix
+## 0.16.1 — the real cause of the memory kills: no heap ceiling
 
-### What was actually happening
+**This corrects 0.16.0.** That release blamed four JSON columns on each prediction and made every list
+query drop them. Measuring the columns afterwards showed they are tiny:
+
+| Column | Average size |
+| --- | --- |
+| `matrix` (the 11x11 grid) | 322 bytes |
+| `topScorelines` | 259 bytes |
+| `rationale` | 463 bytes |
+| `features` | 390 bytes |
+
+About **1.4KB per prediction** — roughly 14MB across ten thousand fixtures, perhaps 100MB once Prisma
+turns it into JavaScript objects. Nowhere near the 1.5GB that was being killed. The lean queries in 0.16.0
+are worth keeping, and the pages are faster for them, but they were not the cause.
+
+### What the cause was
+**V8 had no heap ceiling.** It sizes its default old-space from total RAM, which on a 2GB machine lands
+around 1.5GB — so Node grows to about 1.5GB before it feels any need to collect. On a box also running
+Postgres and a second app, the kernel's OOM killer gets there first. The three kills were at 875MB, 1.46GB
+and 1.6GB, which is that limit being approached rather than any single query being enormous.
+
+A request that allocates a few hundred megabytes of short-lived objects is perfectly normal. It only
+becomes fatal when nothing prompts a collection before the ceiling is reached.
+
+### The fix
+The service now runs with `NODE_OPTIONS=--max-old-space-size=640`. V8 collects as it approaches that
+instead of growing until it is killed. Three consecutive passes over the four heaviest pages now sit at
+**801MB, 773MB, 799MB resident** — flat, where before the same traffic climbed until the kernel intervened.
+
+The installer writes the ceiling into the systemd unit, and `update` adds it to installs that predate it.
+A unit already carrying a hand-tuned `NODE_OPTIONS` is left alone. Override with `HEAP_MB` on a larger
+machine.
+
+### On BOARD_LIMIT
+Set to 1200 in `.env` during diagnosis. The code default is 2500 and, with the ceiling in place, that is
+fine — remove the line from `.env` if you would rather the scanners see the full three-week window.
+
+## 0.16.0 — lighter list queries
+
+> The diagnosis below is wrong about the cause. The columns it blames are about 1.4KB per row in
+> total, not enough to matter. See 0.16.1 for what was actually happening. The changes are still
+> worth having — the pages do less work — but they are an optimisation, not the fix.
+
+### What was thought to be happening
 Not a leak, and not a cron job. `next-server` — the web server itself — was being **OOM-killed while
 serving a single request**, three times, at 875MB, 1.46GB and 1.6GB. No sync or re-price was running at
 the time, and the third app on the box was idle. One page view genuinely asked for a gigabyte and a half.

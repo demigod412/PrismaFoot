@@ -101,6 +101,14 @@ if [[ "$MODE" == "update" ]]; then
     rm -rf "$TMP"; chown -R "$APP_USER:$APP_USER" "$APP_DIR"
   fi
   sudo -u "$APP_USER" bash -lc "cd '$APP_DIR' && npm ci --no-audit --no-fund && npx prisma db push --skip-generate && npm run build"
+  # Installs predating the heap ceiling get it here rather than needing a reinstall. Idempotent: a unit
+  # that already carries NODE_OPTIONS is left alone, so a value tuned by hand survives updates.
+  UNIT_FILE="/etc/systemd/system/$APP_NAME.service"
+  if [[ -f "$UNIT_FILE" ]] && ! grep -q "NODE_OPTIONS" "$UNIT_FILE"; then
+    sed -i "/^Environment=NODE_ENV=production\$/a Environment=NODE_OPTIONS=--max-old-space-size=${HEAP_MB:-640}" "$UNIT_FILE"
+    systemctl daemon-reload
+    ok "Added a ${HEAP_MB:-640}MB heap ceiling to $APP_NAME.service"
+  fi
   systemctl restart "$APP_NAME"
   # Refresh scheduled jobs from vercel.json (new jobs such as lock/results appear automatically)
   CRON_SECRET=$(grep -E '^CRON_SECRET=' "$APP_DIR/.env" | head -1 | cut -d= -f2-)
@@ -299,7 +307,21 @@ ok "Build complete"
 # =============================================================================
 #  6. SYSTEMD SERVICE
 # =============================================================================
-say "Creating systemd service '$APP_NAME'"
+# ── Why the heap ceiling is not optional on a small box ────────────────────────────────────────────
+#
+# V8 sizes its default old-space from total RAM. On a 2GB machine that lands around 1.5GB, so Node will
+# happily grow to 1.5GB before it feels any need to collect — and on a box that also runs Postgres and a
+# second app, the kernel's OOM killer gets there first. That is exactly what happened here: next-server
+# was killed three times at 875MB, 1.46GB and 1.6GB while serving ordinary page requests.
+#
+# It was not a leak, and it was not any one query. A request that allocates a few hundred megabytes of
+# short-lived objects is fine; it only becomes fatal when nothing prompts a collection before the limit.
+# With an explicit ceiling V8 collects as it approaches it, and the same requests settle around 800MB
+# resident instead of climbing until they are killed.
+#
+# 640MB of old space leaves room for Postgres and a second app. Raise it on a bigger machine.
+HEAP_MB=${HEAP_MB:-640}
+say "Creating systemd service '$APP_NAME' (heap ceiling ${HEAP_MB}MB)"
 cat > "/etc/systemd/system/$APP_NAME.service" <<UNIT
 [Unit]
 Description=$APP_NAME (Next.js)
@@ -314,6 +336,7 @@ EnvironmentFile=$ENV_FILE
 Environment=NODE_ENV=production
 Environment=PORT=$PORT
 Environment=HOSTNAME=127.0.0.1
+Environment=NODE_OPTIONS=--max-old-space-size=$HEAP_MB
 ExecStart=/usr/bin/npx next start -H 127.0.0.1 -p $PORT
 Restart=always
 RestartSec=5
