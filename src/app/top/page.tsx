@@ -3,9 +3,9 @@ import { prisma } from "@/lib/db";
 import { dataMode } from "@/lib/mode";
 import { HEAVY_JSON, withLatestPredictionLean } from "@/lib/queries";
 import { selectTop, tipHit, tipsFor, TOP_N, WINDOWS, CAPS, type Tip } from "@/lib/top";
-import { GROUP_LABEL, MARKET_OPTIONS, marketHit, parseSelector, selectorLabel, type MarketGroup, type MarketKey } from "@/lib/markets";
+import { allMarkets, GROUP_LABEL, MARKET_OPTIONS, marketHit, parseSelector, selectorLabel, selectorMatches, type MarketGroup, type MarketKey } from "@/lib/markets";
 import { flatStakeRoi, selectTopValue, valueTips, VALUE, type ValueTip, VALUE_CEILINGS } from "@/lib/value";
-import type { QuoteMap } from "@/lib/odds";
+import { quoteFor, type QuoteMap } from "@/lib/odds";
 import { dayKeyIn, dayStart, fmtIn, fmtUtc } from "@/lib/time";
 import { tz } from "@/lib/tz";
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
@@ -69,11 +69,12 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
   let likely: { f: (typeof fixtures)[number]; t: Tip }[] = [];
   let value: { f: (typeof fixtures)[number]; t: ValueTip }[] = [];
   let quotesAvailable = true;
+  let qs = new Map<string, QuoteMap>();
   if (list === "likely") {
     likely = selectTop(fixtures.flatMap((f) => f.predictions[0] ? [{ item: f, id: f.id, startMs: f.kickoffUtc.getTime(), tips: tipsFor(f.predictions[0], ...names(f), sel) }] : []), sel)
       .map(({ item, tip }) => ({ f: item, t: tip }));
   } else {
-    const qs = quoteMaps(await prisma.oddsQuote.findMany({ where: { fixtureId: { in: fixtures.map((f) => f.id) } }, orderBy: { fetchedAt: "desc" } }));
+    qs = quoteMaps(await prisma.oddsQuote.findMany({ where: { fixtureId: { in: fixtures.map((f) => f.id) } }, orderBy: { fetchedAt: "desc" } }));
     quotesAvailable = qs.size > 0;
     value = selectTopValue(fixtures.flatMap((f) => {
       const p = f.predictions[0], q = qs.get(f.id);
@@ -93,6 +94,30 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
   const statsAvailable = !needsStats || fixtures.some((f) => {
     const p = f.predictions[0]; if (!p) return false;
     return selGroup === "corners" ? p.cornersLine != null : p.shotsLine != null;
+  });
+  /*
+   * Two more reasons a list comes back empty, neither of which is "nothing qualifies".
+   *
+   * A market the model has not written yet. A new market means a new column, and predictions made before
+   * it existed have it null — so the market is absent from every fixture until the re-pricer has been
+   * over them. "No fixture qualifies, try a longer window" is then actively misleading: a longer window
+   * contains more fixtures that are equally unpriced.
+   *
+   * And a market no bookmaker prices. Best value compares a model probability with a real quote, and the
+   * odds feed carries 1X2, double chance, BTTS, goal lines, the -1.5 handicap, corners and shots. The
+   * model prices more than that — half-time, the halves, the shape markets, GG2+ — and for those the
+   * value list can only ever be empty. Checked against the quotes actually loaded rather than a hand-kept
+   * list, so it cannot drift from what the feed really returns.
+   *
+   * Both are computed only when the list is empty, since each costs a pass over the window.
+   */
+  const marketStored = shown > 0 || !sel || fixtures.some((f) => {
+    const p = f.predictions[0];
+    return !!p && allMarkets(p, ...names(f)).some((m) => selectorMatches(sel, m));
+  });
+  const marketQuoted = shown > 0 || list !== "value" || !quotesAvailable || fixtures.some((f) => {
+    const p = f.predictions[0], q = qs.get(f.id);
+    return !!p && !!q && allMarkets(p, ...names(f)).some((m) => selectorMatches(sel, m) && !!quoteFor(q, m.key));
   });
   const nextUp = shown ? null : await prisma.fixture.findFirst({ where: { provider, status: "SCHEDULED", kickoffUtc: { gt: now }, ...(focus ? { league: { focusGroup: focus } } : {}) }, orderBy: { kickoffUtc: "asc" }, include: { league: true } });
 
@@ -185,9 +210,16 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
       
 
       {shown === 0 ? (
-        <EmptyState title={list === "value" && !quotesAvailable ? "No bookmaker odds yet" : !statsAvailable ? `No ${selGroup === "corners" ? "corner" : "shot"} data in this window` : `No qualifying ${selectorLabel(sel).toLowerCase()} tips ${days === 1 ? "left today" : "in this window"}`}
+        <EmptyState title={list === "value" && !quotesAvailable ? "No bookmaker odds yet"
+          : !marketQuoted ? `No bookmaker prices ${selectorLabel(sel)}`
+          : !marketStored ? `${selectorLabel(sel)} is not priced yet`
+          : !statsAvailable ? `No ${selGroup === "corners" ? "corner" : "shot"} data in this window` : `No qualifying ${selectorLabel(sel).toLowerCase()} tips ${days === 1 ? "left today" : "in this window"}`}
           body={list === "value" && !quotesAvailable
             ? "The value list compares model probabilities with bookmaker odds, which come from API-Football. With football-data.org there are no odds, so this list stays empty."
+            : !marketQuoted
+            ? `Best value needs a bookmaker price to compare against, and the odds feed does not carry this market — it quotes 1X2, double chance, both teams to score, goal lines, the 1.5 handicap, corners and shots. ${selectorLabel(sel)} is priced by the model only, so switch to Most likely to rank it.`
+            : !marketStored
+            ? `No fixture in this window carries this market yet. It is a newer market, so predictions made before it was added have it empty, and a longer window will only add more of the same. It fills in as fixtures are re-priced, which the hourly sync does as it goes.`
             : !statsAvailable
             ? `${selGroup === "corners" ? "Corner" : "Shot"} lines are modelled from each team's match-by-match ${selGroup === "corners" ? "corner" : "shot"} history, and that history is only collected for the competitions inside the statistics budget. No fixture in this window has it, so there is nothing to rank — this is missing data, not a shortage of qualifying tips.`
             : nextUp && nextUp.kickoffUtc.getTime() > end.getTime()

@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.17.1 — an empty Top 50 now says which kind of empty it is
+
+Selecting GG2+ in the Top 50 gave "No upcoming match in this window qualifies yet. Try a longer window."
+Both sentences were wrong: nothing was failing to qualify, and a longer window would only have added more
+fixtures in the same state. Two distinct causes, neither of which was "nothing qualifies".
+
+### A market the model has not written yet
+A new market means a new column, and every prediction made before it existed has that column empty — so
+the market is absent from every fixture until the re-pricer has been over them. The page now says
+**"Both teams 2+ goals (GG2+) is not priced yet"** and explains that a longer window will not help.
+
+### A market no bookmaker prices
+Best value compares a model probability against a real quote. The odds feed carries 1X2, double chance,
+both teams to score, goal lines, the 1.5 handicap, corners and shots — and nothing else. The model prices
+a good deal more than that, so **Best value could never return anything** for half-time, the halves, the
+shape markets or GG2+, whatever the odds ceiling was set to. That is why changing "max odds" to Any
+filtered nothing out: there was nothing in the list to filter.
+
+It now says **"No bookmaker prices Both teams 2+ goals (GG2+)"** and points at Most likely instead. This
+was never specific to GG2+ — HT draw, 1st/2nd half unders, the win-or-over combos, No win by 2+ and Not
+both halves over 1.5 were all silently empty on that list too.
+
+Checked against the quotes actually loaded for the window rather than a hand-kept list of quoted markets,
+so it cannot drift from what the feed really returns. Both checks run only when the list is already
+empty, so nothing is paid for on a normal page view.
+
 ## 0.17.0 — GG2+: both teams to score two or more
 
 A new market for fixtures where **both sides are expected to reach two goals**. It lives in the scanner
