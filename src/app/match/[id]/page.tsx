@@ -50,7 +50,9 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
   const qmap: QuoteMap = {};
   for (const q of quotes) qmap[q.market as MarketKey] ??= { odds: q.odds, best: q.best, books: q.books }; // newest first
   const values = p ? valueTips(p, qmap, fx.homeTeam.shortName ?? fx.homeTeam.name, fx.awayTeam.shortName ?? fx.awayTeam.name).slice(0, 3) : [];
-  const markets = p ? allMarkets(p, fx.homeTeam.shortName ?? fx.homeTeam.name, fx.awayTeam.shortName ?? fx.awayTeam.name) : [];
+  // Scanner-only markets are excluded here: see MarketTip.scannerOnly for why a rare market is browsed
+  // rather than presented.
+  const markets = p ? allMarkets(p, fx.homeTeam.shortName ?? fx.homeTeam.name, fx.awayTeam.shortName ?? fx.awayTeam.name).filter((m) => !m.scannerOnly) : [];
   const tip = p ? bestTip(p, fx.homeTeam.shortName ?? fx.homeTeam.name, fx.awayTeam.shortName ?? fx.awayTeam.name) : null;
   return (
     <article>

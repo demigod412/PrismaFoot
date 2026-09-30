@@ -234,6 +234,26 @@ export function notBothHalvesOver15(m: Matrix, s: number): number {
 }
 
 /** P(no team wins by two or more) — the margin is a draw or a single goal. */
+/**
+ * P(both sides score at least k) — "GG2+" at k = 2.
+ *
+ * Summed off the matrix rather than multiplied out as P(home>=k) x P(away>=k). At k = 2 the two agree to
+ * the decimal place, and that is worth knowing rather than assuming: the Dixon-Coles correction only
+ * adjusts 0-0, 1-0, 0-1 and 1-1, so it is inactive across the whole region where both sides reach two and
+ * the scores are effectively independent Poisson tails there.
+ *
+ * Summing is still the right implementation. It reads the probability off the same grid every other
+ * market is read from, so it cannot drift away from them, and it stays correct if the matrix stops being
+ * a pair of independent Poissons — a different dependence correction, or a truncation — where a product
+ * of marginals silently would not. At k = 1 the two genuinely differ, because that region is exactly
+ * where rho bites.
+ */
+export function bothTeamsAtLeast(m: Matrix, k: number): number {
+  let p = 0;
+  m.forEach((row, i) => { if (i >= k) row.forEach((q, j) => { if (j >= k) p += q; }); });
+  return Math.min(1, p);
+}
+
 export function noWinByTwo(m: Matrix): number {
   let p = 0;
   m.forEach((row, i) => row.forEach((q, j) => { if (Math.abs(i - j) <= 1) p += q; }));

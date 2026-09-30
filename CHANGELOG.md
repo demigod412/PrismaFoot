@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.17.0 — GG2+: both teams to score two or more
+
+A new market for fixtures where **both sides are expected to reach two goals**. It lives in the scanner
+and can be selected in the Top 50, and deliberately nowhere else.
+
+### Where it is, and why only there
+| Surface | GG2+ |
+| --- | --- |
+| Scanner ("GG2+") | Yes — a ranked list above your floor |
+| Top 50, market filter | Yes — "Both teams 2+ goals (GG2+)" |
+| Top 50, mixed list | No |
+| Match page | No |
+| Odds builder | No |
+| Accuracy ledger | Yes — it settles from the final score |
+
+GG2+ is rare by construction rather than by fixture. Measured across the model: **3%** in a very low
+scoring game, **13.6%** at league average, **20.7%** in an open one, **41%** at the extreme. Listing that
+beside "Over 1.5" on a match page invites a 13% shot being read as a call, and in the odds builder it
+would dominate every high-target slip, because a rare market is the longest honest price in the book.
+Browsing a ranked list of long shots is a different act from being shown one, so it lives where the
+ranking is.
+
+For the same reason it is out of the Top 50's mixed list and selectable by name. A market that tops out
+near a fifth would never out-rank anything in a list sorted by probability, so appearing there by accident
+is the only way it could appear at all.
+
+### The probability
+Summed off the scoreline matrix, as a joint probability. At two goals each it agrees with multiplying the
+two sides' chances to three decimal places — the Dixon-Coles correction only adjusts 0-0, 1-0, 0-1 and
+1-1, so it is inactive across the whole region where both sides reach two, and the scores there are
+independent Poisson tails. Summing is kept anyway: it reads off the same grid as every other market, so it
+cannot drift from them, and it stays correct if the matrix ever stops being a pair of independent
+Poissons. At one goal each the two genuinely differ, and that case is BTTS, which was already priced.
+
+Not run through the 1X2 calibrators, for the same reason as the shape markets: those map a win/draw/away
+probability to its observed frequency, and this is not one.
+
+Not clamped on low-confidence fixtures either, which is a departure. The clamp pulls a thin-data
+probability into 0.11-0.89 so the app never states near-certainty it cannot support — but GG2+ is
+legitimately below 0.11 in quiet fixtures, and rounding a correct 6% up to 11% nearly doubles it.
+Overstating a long shot is the one direction that costs money.
+
+### Floor
+Default **0.15** in Settings, which sits between league average (13.6%) and an open game (20.7%) — so the
+list is selective without being empty. A named market in the Top 50 is held to 0.05 rather than the usual
+0.55, since 0.55 is above anything GG2+ can reach; that relaxation applies only to markets flagged rare by
+construction, and MIN_P still governs every other named market.
+
+### After deploying
+Existing predictions have the column empty, so run the re-pricer until it reports nothing left. It makes
+no provider requests:
+
+```
+cd /var/www/pitchedge && sudo -u ubuntu npm run repredict
+```
+
 ## 0.16.1 — the real cause of the memory kills: no heap ceiling
 
 **This corrects 0.16.0.** That release blamed four JSON columns on each prediction and made every list

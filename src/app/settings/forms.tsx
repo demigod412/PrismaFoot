@@ -71,6 +71,7 @@ export function FloorsForm({ floors }: { floors: Record<string, number> }) {
     safeP: "Safe list — minimum probability (High confidence only)", winMargin: "Win — lead over the next outcome",
     noWinBy2: "No win by 2+ — minimum probability", noBothHalves: "Not both halves over 1.5 — minimum probability",
     noRun3: "No 3 goals in a row — minimum probability (never scored)",
+    gg2: "Both teams 2+ goals (GG2+) — minimum probability",
     o15: "Over 1.5 goals", o25: "Over 2.5 goals", u25: "Under 2.5 goals", u35: "Under 3.5 goals", u45: "Under 4.5 goals",
     btts: "Both teams to score", bttsNo: "BTTS No", draw: "Draw", team2: "A team to score 2+", by2: "Win by 2+ (−1.5)",
     dc: "Double chance", winOver: "Win or Over 2.5",

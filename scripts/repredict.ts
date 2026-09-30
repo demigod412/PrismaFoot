@@ -59,7 +59,8 @@ const DEFAULT_BATCH = 20;
       gt: new Date(now.getTime() + LOCK_MINUTES * 60_000),
       lte: new Date(now.getTime() + FIXTURE_WINDOW_DAYS * 86_400_000),
     },
-    predictions: { none: { calNoRun3: { not: null } } },
+    // The newest column is the sentinel: a fixture with no revision carrying it still needs re-pricing.
+    predictions: { none: { calGg2: { not: null } } },
   };
   const candidates = await db.league.findMany({
     where: { provider, fixtures: { some: needsWork } },

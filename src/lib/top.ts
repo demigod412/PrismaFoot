@@ -12,6 +12,19 @@ import { allMarkets, marketHit, selectorKey, selectorMatches, type MarketKey, ty
  */
 export const TOP_N = 50;
 export const MIN_P = 0.55;
+/*
+ * The floor for a market that is rare BY CONSTRUCTION, when it has been asked for by name.
+ *
+ * MIN_P is deliberate everywhere else, including inside a named market: asking for Over 2.5 and being
+ * shown a 40% one is how a filter turns into a recommendation, and there is a test holding that line.
+ *
+ * But a market whose ceiling sits below MIN_P cannot be ranked at all under it — the page comes back
+ * empty and looks broken rather than selective. GG2+ tops out near a fifth of fixtures even in the most
+ * open game in the model. So the exemption is tied to `scannerOnly`, which is exactly the set of markets
+ * that are rare by their definition rather than by the fixture, and it applies only when the market has
+ * been named. Nothing reaches a mixed list this way.
+ */
+export const MIN_P_NAMED = 0.05;
 export const WINDOWS = [1, 2, 3, 4, 5, 6, 7] as const;
 /*
  * Out of every ranked list.
@@ -20,7 +33,15 @@ export const WINDOWS = [1, 2, 3, 4, 5, 6, 7] as const;
  * tip list whose entries can never be scored would quietly poison the track record underneath it — the
  * one number in this app that has to mean something.
  */
-const EXCLUDED: MarketKey[] = ["draw", "no_run3"];
+/*
+ * Kept out of the mixed list, still selectable by name.
+ *
+ * "draw" because a draw is rarely the strongest call and would read as one. "no_run3" because it cannot
+ * be settled. "gg2" because it is rare by construction: at a fifth of fixtures at the very top end it
+ * would never out-rank an Over 1.5 anyway, and listing it by accident rather than by choice is the wrong
+ * way for a long shot to reach anyone.
+ */
+const EXCLUDED: MarketKey[] = ["draw", "no_run3", "gg2"];
 
 /** Max tips per capped category in the mixed list. */
 export const CAPS = { dc: 5, under45: 5, hcp: 5, halfU25: 2 } as const;
@@ -53,7 +74,7 @@ export function tipsFor(p: MarketSource, home: string, away: string, sel?: Marke
   return allMarkets(p, home, away)
     .filter((m) => (!EXCLUDED.includes(m.key) || (named === m.key && !m.unverifiable))
       && (!m.alt || m.strong || asksForLines)
-      && selectorMatches(sel, m) && m.p >= MIN_P)
+      && selectorMatches(sel, m) && m.p >= (named === m.key && m.scannerOnly ? MIN_P_NAMED : MIN_P))
     .map((m) => ({ ...m, strength: strengthOf(m.p, p.confidence) }))
     .sort((a, b) => b.strength - a.strength);
 }

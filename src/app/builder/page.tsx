@@ -60,7 +60,9 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
     const q = new Map<string, number>();
     for (const x of quotes) if (x.fixtureId === f.id && !q.has(x.market)) q.set(x.market, x.odds); // newest first
     const H = f.homeTeam.shortName ?? f.homeTeam.name, A = f.awayTeam.shortName ?? f.awayTeam.name;
-    return allMarkets(p, H, A).map((m) => {
+    // Scanner-only markets are left out: a slip search chasing a high target would fill itself with
+    // them, since a rare market is the longest honest price available.
+    return allMarkets(p, H, A).filter((m) => !m.scannerOnly).map((m) => {
       const price = q.get(m.key);
       return {
         matchId: f.id, league: f.league.name, startMs: +f.kickoffUtc, match: `${H} v ${A}`, label: m.label, market: m.key,
@@ -87,7 +89,8 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
   const record = [...byDay.entries()].sort(([a], [b]) => b.localeCompare(a)).flatMap(([day, ps]) => {
     const cands: Candidate[] = ps.flatMap((x) => {
       const H = x.fixture.homeTeam.shortName ?? x.fixture.homeTeam.name, A = x.fixture.awayTeam.shortName ?? x.fixture.awayTeam.name;
-      return allMarkets(x, H, A).map((m) => ({ matchId: x.fixtureId, league: x.fixture.league.name, startMs: +x.fixture.kickoffUtc, match: `${H} v ${A}`,
+      // The same exclusion as the live builder above, or this record would not describe it.
+      return allMarkets(x, H, A).filter((m) => !m.scannerOnly).map((m) => ({ matchId: x.fixtureId, league: x.fixture.league.name, startMs: +x.fixture.kickoffUtc, match: `${H} v ${A}`,
         label: m.label, market: m.key, group: m.group, p: m.p, odds: 1 / m.p, real: false, band: x.band }));
     });
     const [built] = buildSlips(cands, { target, maxLegs, minLegs, mode: "safe", band: "LOW", maxLegOdds: legCap, evenLegs }, 1);

@@ -199,6 +199,8 @@ model Prediction {
   calNoBothHalvesOver15 Float?
   /// P(the margin is a draw or a single goal).
   calNoWinBy2          Float?
+  /// P(both sides score at least two) — "GG2+". Off the matrix as a joint probability, not a product.
+  calGg2               Float?
   calHtDraw     Float?   // draw at half-time
   // Unders are complements of the calibrated overs: under_x = 1 − over_x (lines 2.5 / 3.5 / 4.5).
   calBtts       Float

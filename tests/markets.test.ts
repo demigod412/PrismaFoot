@@ -16,6 +16,7 @@ const pred = (over: Partial<Prediction> = {}) => ({
   calOver15: 0.82, calOver25: 0.61, calOver35: 0.36, calOver45: 0.18, calBtts: 0.58,
   calHomeBy2: 0.34, calAwayBy2: 0.08,
   calH1Under15: 0.62, calH1Under25: 0.85, calH2Under25: 0.8, calHtDraw: 0.4,
+  calGg2: 0.14,
   calHomeOrOver25: 0.81, calAwayOrOver25: 0.66,
   cornersLine: 10.5, calCornersOver: 0.55,
   cornerLines: [{ l: 8.5, o: 0.78 }, { l: 10.5, o: 0.55 }, { l: 12.5, o: 0.3 }],
@@ -259,5 +260,74 @@ describe("the shape markets are exact, not approximated", () => {
         expect(v).toBeLessThanOrEqual(1);
       }
     }
+  });
+});
+
+import { bothTeamsAtLeast } from "@/lib/model/dixonColes";
+import { MIN_P_NAMED } from "@/lib/top";
+
+describe("GG2+ (both teams to score two or more)", () => {
+  it("equals the summed region of the matrix, and BTTS at k = 1", () => {
+    const m = scoreMatrix(1.7, 1.4, -0.05);
+    let region = 0, btts = 0;
+    m.forEach((row, i) => row.forEach((q, j) => { if (i >= 2 && j >= 2) region += q; if (i >= 1 && j >= 1) btts += q; }));
+    expect(bothTeamsAtLeast(m, 2)).toBeCloseTo(region, 12);
+    // k = 1 IS both teams to score, which is the market the model already prices.
+    expect(bothTeamsAtLeast(m, 1)).toBeCloseTo(btts, 12);
+  });
+
+  /*
+   * The Dixon-Coles correction only adjusts 0-0, 1-0, 0-1 and 1-1, so it is inactive across the whole
+   * region where both sides reach two: there the joint is the product of two independent Poisson tails.
+   * Asserted because the implementation sums the grid instead, and a claim that the two agree is worth
+   * holding to rather than repeating.
+   */
+  it("agrees with the product of the two tails at k = 2, where rho does not reach", () => {
+    for (const [lh, la] of [[0.8, 0.7], [1.45, 1.15], [2.4, 2.0], [2.6, 0.6]] as const) {
+      const m = scoreMatrix(lh, la, -0.05);
+      let ph = 0, pa = 0;
+      m.forEach((row, i) => row.forEach((q, j) => { if (i >= 2) ph += q; if (j >= 2) pa += q; }));
+      expect(bothTeamsAtLeast(m, 2)).toBeCloseTo(ph * pa, 3);
+    }
+  });
+
+  it("rises with expected goals and stays a long shot even when it is open", () => {
+    const at = (lh: number, la: number) => bothTeamsAtLeast(scoreMatrix(lh, la, -0.05), 2);
+    expect(at(0.8, 0.7)).toBeLessThan(at(1.45, 1.15));
+    expect(at(1.45, 1.15)).toBeLessThan(at(2.4, 2.0));
+    // A mismatch is a poor GG2+ fixture however many goals it promises: one side has to reach two as well.
+    expect(at(2.6, 0.6)).toBeLessThan(at(1.7, 1.4));
+    // Never near a coin flip, which is why it is excluded from the mixed Top 50 and floored low.
+    expect(at(2.4, 2.0)).toBeLessThan(0.5);
+  });
+
+  it("settles from the final score alone", () => {
+    expect(marketHit("gg2", { h: 2, a: 2 })).toBe(true);
+    expect(marketHit("gg2", { h: 3, a: 2 })).toBe(true);
+    expect(marketHit("gg2", { h: 2, a: 1 })).toBe(false);
+    expect(marketHit("gg2", { h: 5, a: 0 })).toBe(false);
+    expect(marketHit("gg2", { h: 0, a: 0 })).toBe(false);
+  });
+
+  it("is offered in the catalogue but kept off the match page and out of the builder", () => {
+    const tip = allMarkets(pred(), "Home", "Away").find((m) => m.key === "gg2");
+    expect(tip).toBeDefined();
+    // The match page and the builder both filter on this flag.
+    expect(tip!.scannerOnly).toBe(true);
+    expect(tip!.unverifiable).toBeUndefined();
+    expect(MARKET_OPTIONS.some((o) => o.value === "k:gg2")).toBe(true);
+  });
+
+  it("never enters the mixed Top 50, but is ranked when it is asked for by name", () => {
+    // 0.14 is a realistic GG2+ figure and far below MIN_P, so the mixed list excludes it twice over.
+    const p = pred({ calGg2: 0.14 } as never);
+    expect(tipsFor(p, "H", "A").some((t) => t.key === "gg2")).toBe(false);
+    const named = tipsFor(p, "H", "A", "k:gg2");
+    expect(named.map((t) => t.key)).toEqual(["gg2"]);
+    expect(named[0].p).toBeCloseTo(0.14, 12);
+    // Its own group must not smuggle it in: the group list is still held to MIN_P.
+    expect(tipsFor(p, "H", "A", "btts").some((t) => t.key === "gg2")).toBe(false);
+    // And a named market below even the relaxed floor is still dropped.
+    expect(tipsFor(pred({ calGg2: MIN_P_NAMED / 2 } as never), "H", "A", "k:gg2")).toEqual([]);
   });
 });

@@ -21,7 +21,8 @@ export type MarketKey =
   | "ht_draw"
   | "h1_under15" | "h1_under25" | "h2_under25"
   | "home_or_over25" | "away_or_over25"
-  | "no_both_halves_over15" | "no_win_by2" | "no_run3";
+  | "no_both_halves_over15" | "no_win_by2" | "no_run3"
+  | "gg2";
 
 export type MarketGroup = "win" | "dc" | "goals" | "btts" | "hcp" | "halves" | "combo" | "corners" | "shots" | "shape";
 export const GROUP_LABEL: Record<MarketGroup, string> = {
@@ -38,6 +39,16 @@ export interface MarketTip {
    * the goals arrived in, and only the final and half-time scores are kept.
    */
   unverifiable?: true;
+  /**
+   * Offered in the scanner and the Top 50 only — not on the match page and not in the odds builder.
+   *
+   * For a market that is rare by construction rather than by fixture. GG2+ lands in well under a fifth
+   * of matches, so listing it beside "Over 1.5" on a match page invites reading a 12% shot as a call,
+   * and in the builder it would dominate every high-target slip for the same reason: the search wants
+   * long odds and this is the longest honest price in the book. Browsing a ranked list of them is a
+   * different act from being shown one, so it lives where the ranking is.
+   */
+  scannerOnly?: true;
 }
 
 /*
@@ -73,6 +84,7 @@ export const MARKET_OPTIONS: MarketOption[] = [
   { value: "k:under45", label: "Under 4.5 goals", group: "goals" },
   { value: "k:btts_yes", label: "Both teams to score", group: "btts" },
   { value: "k:btts_no", label: "Both teams to score: No", group: "btts" },
+  { value: "k:gg2", label: "Both teams 2+ goals (GG2+)", group: "btts" },
   { value: "k:home_by2", label: "Home to win by 2+", group: "hcp" },
   { value: "k:away_by2", label: "Away to win by 2+", group: "hcp" },
   { value: "k:h1_under15", label: "1st half Under 1.5", group: "halves" },
@@ -172,6 +184,8 @@ export function allMarkets(p: MarketSource, home: string, away: string): MarketT
     label: "Not both halves over 1.5 goals", short: "Not both halves O1.5", p: p.calNoBothHalvesOver15 });
   if (p.calNoWinBy2 != null) out.push({ key: "no_win_by2", group: "hcp",
     label: "No team to win by 2 or more", short: "No win by 2+", p: p.calNoWinBy2 });
+  if (p.calGg2 != null) out.push({ key: "gg2", group: "btts",
+    label: "Both teams to score 2 or more", short: "GG2+", p: p.calGg2, scannerOnly: true });
   /*
    * Read-only: the probability is exact, the outcome is not recoverable. Flagged rather than omitted,
    * because a market shown without a probability is useless and a probability shown without the caveat
@@ -223,6 +237,8 @@ export function marketHit(k: MarketKey, r: MatchResult, lines: { corners?: numbe
     case "over15": return t >= 2; case "over25": return t >= 3; case "over35": return t >= 4;
     case "under25": return t <= 2; case "under35": return t <= 3; case "under45": return t <= 4;
     case "btts_yes": return h > 0 && a > 0; case "btts_no": return h === 0 || a === 0;
+    // Settleable from the final score alone, so unlike "no 3 in a row" this one earns a record.
+    case "gg2": return h >= 2 && a >= 2;
     case "home_by2": return h - a >= 2; case "away_by2": return a - h >= 2;
     case "home_or_over25": return h > a || t >= 3; case "away_or_over25": return a > h || t >= 3;
     case "h1_under15": case "h1_under25": case "h2_under25": {

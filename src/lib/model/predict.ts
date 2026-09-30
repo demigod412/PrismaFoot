@@ -1,5 +1,5 @@
 import { LOW_BAND_DISPLAY_CAP, MODEL_VERSION } from "./constants";
-import { marketsFromMatrix, scoreMatrix, topScorelines, truncateMatrix, winByAtLeast, type Markets, type Scoreline, halfUnders, halfTimeResult, winOrOver, noThreeInARow, notBothHalvesOver15, noWinByTwo } from "./dixonColes";
+import { marketsFromMatrix, scoreMatrix, topScorelines, truncateMatrix, winByAtLeast, type Markets, type Scoreline, halfUnders, halfTimeResult, winOrOver, noThreeInARow, notBothHalvesOver15, noWinByTwo, bothTeamsAtLeast } from "./dixonColes";
 import { priorRating, type LeagueFit, type TeamRating } from "./ratings";
 import { apply, calibrate1x2, IDENTITY_SET, type CalibratorSet } from "./calibration";
 import { confidenceScore, type Band } from "./confidence";
@@ -35,7 +35,7 @@ export interface PredictOutput {
    * none of them passes through a 1X2 calibrator — those are fitted on win/draw/away frequencies, and
    * scaling a different quantity by them would be worse than stating the model's own number.
    */
-  shapes: { noRun3: number; noBothHalvesOver15: number; noWinBy2: number };
+  shapes: { noRun3: number; noBothHalvesOver15: number; noWinBy2: number; gg2: number };
   winOrOver: { raw: { home: number; away: number }; cal: { home: number; away: number } };
   predHomeGoals: number; predAwayGoals: number;
   topScorelines: Scoreline[];
@@ -121,12 +121,22 @@ export function predictFixture(inp: PredictInput): PredictOutput {
     noRun3: noThreeInARow(m),
     noBothHalvesOver15: notBothHalvesOver15(m, share),
     noWinBy2: noWinByTwo(m),
+    // Stored rather than recomputed on demand so the scanner and the Top 50 can read it off a lean row.
+    gg2: bothTeamsAtLeast(m, 2),
   };
   if (band === "LOW") {
     capLow(cal, flags);
     const c = (x: number) => Math.min(0.89, Math.max(0.11, x));
     cWo.home = c(cWo.home); cWo.away = c(cWo.away); halves.h1u15 = c(halves.h1u15); halves.h1u25 = c(halves.h1u25); halves.h2u25 = c(halves.h2u25); halves.htDraw = c(halves.htDraw);
     shapes.noRun3 = c(shapes.noRun3); shapes.noBothHalvesOver15 = c(shapes.noBothHalvesOver15); shapes.noWinBy2 = c(shapes.noWinBy2);
+    /*
+     * gg2 is deliberately NOT clamped.
+     *
+     * The clamp pulls a thin-data probability into [0.11, 0.89] so the app never states near-certainty it
+     * cannot support. But GG2+ is a genuinely rare outcome — a fifth of fixtures at the top end, a
+     * twentieth at the bottom — so the floor would round a correct 0.06 up to 0.11, nearly doubling it.
+     * Overstating a long shot is the one direction that costs money here.
+     */
   }
 
   const features = {
