@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { allMarkets, type MarketKey } from "@/lib/markets";
+import { leagueLabel } from "@/lib/leagues";
 import { addLeg, dropLowConfidence, dropWeakest, mergeSlips, removeLeg, splitInTwo, trimToTarget, type Leg } from "@/lib/slips";
 import { sportybetBook } from "@/lib/booking/sportybet";
 
@@ -37,7 +38,7 @@ const done = (message: string, ok = true): SlipResult => { revalidatePath("/slip
 /** Add a market from a match to the active slip (one leg per match; a new market replaces the old one). */
 export async function addToSlip(fixtureId: string, market: MarketKey): Promise<SlipResult> {
   try {
-    const fx = await prisma.fixture.findUnique({ where: { id: fixtureId }, include: { homeTeam: true, awayTeam: true, predictions: { orderBy: { revision: "desc" }, take: 1 } } });
+    const fx = await prisma.fixture.findUnique({ where: { id: fixtureId }, include: { homeTeam: true, awayTeam: true, league: true, predictions: { orderBy: { revision: "desc" }, take: 1 } } });
     const p = fx?.predictions[0];
     if (!fx || !p) return { ok: false, message: "No prediction for this match yet." };
     if (fx.status !== "SCHEDULED" || fx.kickoffUtc <= new Date()) return { ok: false, message: "This match has already started." };
@@ -45,7 +46,7 @@ export async function addToSlip(fixtureId: string, market: MarketKey): Promise<S
     const m = allMarkets(p, H, A).find((x) => x.key === market);
     if (!m) return { ok: false, message: "That market isn't available for this match." };
     const slip = (await activeSlip())!;
-    const r = addLeg(legsOf(slip.legs), { fixtureId, market, label: m.label, match: `${H} v ${A}`, kickoff: fx.kickoffUtc.toISOString(), p: m.p, band: p.band, addedAt: new Date().toISOString() });
+    const r = addLeg(legsOf(slip.legs), { fixtureId, market, label: m.label, match: `${H} v ${A}`, kickoff: fx.kickoffUtc.toISOString(), p: m.p, band: p.band, addedAt: new Date().toISOString(), league: leagueLabel(fx.league) });
     if (r.full) return { ok: false, message: "Slip is full (30 legs)." };
     await prisma.slip.update({ where: { id: slip.id }, data: { legs: asJson(r.legs), bookingCode: null, bookingUrl: null, bookingNote: null } });
     return done(r.replaced ? `Replaced the pick for ${H} v ${A} in ${slip.name}` : `Added to ${slip.name}`);

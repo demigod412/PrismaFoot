@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { dataMode } from "@/lib/mode";
 import { attachLatestPredictions, fixtureBaseInclude, HEAVY_JSON, latestQuotes, RECORD_LIMIT } from "@/lib/queries";
 import { phases } from "@/lib/timing";
+import { unstable_cache } from "next/cache";
 import { leagueLabel } from "@/lib/leagues";
 import { selectTop, tipHit, tipsFor, TOP_N, WINDOWS, CAPS, type Tip } from "@/lib/top";
 import { allMarkets, GROUP_LABEL, MARKET_OPTIONS, marketHit, parseSelector, selectorLabel, selectorMatches, type MarketGroup, type MarketKey } from "@/lib/markets";
@@ -125,52 +126,71 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
   });
   const nextUp = shown ? null : await prisma.fixture.findFirst({ where: { provider, status: "SCHEDULED", kickoffUtc: { gt: now }, ...(focus ? { league: { focusGroup: focus } } : {}) }, orderBy: { kickoffUtc: "asc" }, include: { league: true } });
 
-  // ---------- track record: LOCKED calls only (the call as it stood 15 minutes before kickoff) ----------
-  const since = new Date(todayStart.getTime() - 7 * DAY);
   /*
-   * The seven-day record, and the single most expensive thing on this page.
+   * ---------- track record: LOCKED calls only (the call as it stood 15 minutes before kickoff) ----------
    *
-   * It is rebuilt on every request, for every filter, because the figures depend on the selected market
-   * and list. With 264 competitions that is thousands of settled fixtures, each one then run through the
-   * whole market catalogue. Bounded in kickoff order so the cost cannot grow without limit as the league
-   * list does - RECORD_LIMIT trims the oldest, which is the least interesting end of a daily table.
+   * Cached for ten minutes, because this is the expensive half of the page and it does not change between
+   * filter clicks the way the list does. It depends on the chosen list, market and odds ceiling, so those
+   * are in the key — along with the viewing timezone, which decides where the day boundaries fall and
+   * would otherwise be shared between people in different zones.
+   *
+   * Ten minutes is safe: the figures only move when a result settles, and the settle job runs four times
+   * an hour. What it buys is that trying six markets in a row costs the record once, not six times.
    */
-  const past = await prisma.fixture.findMany({
-    where: { provider, status: "FINISHED", homeGoals: { not: null }, kickoffUtc: { gte: since, lt: todayStart }, predictions: { some: { lockedAt: { not: null } } }, ...(focus ? { league: { focusGroup: focus } } : {}) },
-    include: { homeTeam: true, awayTeam: true, predictions: { where: { lockedAt: { not: null } }, take: 1, omit: HEAVY_JSON } },
-    orderBy: { kickoffUtc: "desc" },
-    take: RECORD_LIMIT,
-  });
-  T.mark("record query", `${past.length} settled`);
-  const pastQuotes = list === "value" ? quoteMaps(
-    // The SQL already cuts at each fixture's lock; the map is passed too, so the guarantee is stated twice.
-    await latestQuotes(past.map((f) => f.id), true),
-    new Map(past.map((f) => [f.id, f.predictions[0].lockedAt!])),
-  ) : new Map<string, QuoteMap>();
-  type Day = { day: string; n: number; hits: number; avgP: number; profit?: number };
-  // Boundaries computed once instead of formatting every fixture's date, and pushed rather than
-  // rebuilt - the spread form copies the whole bucket per insert, which is quadratic for no reason.
-  const buckets = dayBuckets(todayStart, 7, zone);
-  const byDay = new Map<string, (typeof past)[number][]>();
-  for (const f of past) {
-    const k = buckets.keyOf(f.kickoffUtc);
-    if (!k) continue;
-    const bucket = byDay.get(k);
-    if (bucket) bucket.push(f); else byDay.set(k, [f]);
-  }
-  const record: Day[] = [...byDay.entries()].sort(([a], [b]) => b.localeCompare(a)).map(([day, fs]) => {
-    const res = (f: (typeof fs)[number]) => ({ h: f.homeGoals!, a: f.awayGoals!, hc: f.homeCorners, ac: f.awayCorners, hs: f.homeShots, as: f.awayShots, hh: f.htHome, ha: f.htAway });
-    const lines = (f: (typeof fs)[number]) => ({ corners: f.predictions[0].cornersLine, shots: f.predictions[0].shotsLine });
-    if (list === "likely") {
-      const scored = selectTop(fs.map((f) => ({ item: f, id: f.id, startMs: f.kickoffUtc.getTime(), tips: tipsFor(f.predictions[0], f.homeTeam.name, f.awayTeam.name, sel) })), sel)
-        .map(({ item, tip }) => ({ tip, hit: tipHit(tip.key, item.homeGoals!, item.awayGoals!, res(item), lines(item)) })).filter((x) => x.hit != null);
-      return { day, n: scored.length, hits: scored.filter((x) => x.hit).length, avgP: scored.reduce((s, x) => s + x.tip.p, 0) / (scored.length || 1) };
-    }
-    const picks = selectTopValue(fs.flatMap((f) => { const q = pastQuotes.get(f.id); return q ? [{ item: f, id: f.id, startMs: f.kickoffUtc.getTime(), tips: valueTips(f.predictions[0], q, f.homeTeam.name, f.awayTeam.name, { maxOdds: cap, market: sel }) }] : []; }))
-      .map(({ item, tip }) => ({ tip, hit: marketHit(tip.key, res(item), lines(item)) })).filter((x) => x.hit != null);
-    const roi = flatStakeRoi(picks.map((x) => ({ odds: x.tip.odds, hit: !!x.hit })));
-    return { day, n: roi.n, hits: roi.hits, avgP: picks.reduce((s, x) => s + x.tip.p, 0) / (picks.length || 1), profit: roi.profit };
-  }).filter((r) => r.n);
+  const recordKey = [list, sel ?? "all", String(cap), focus ?? "all", zone] as const;
+  const buildRecord = unstable_cache(
+    async () => {
+      const since = new Date(todayStart.getTime() - 7 * DAY);
+      /*
+       * The seven-day record, and the single most expensive thing on this page.
+       *
+       * It is rebuilt on every request, for every filter, because the figures depend on the selected market
+       * and list. With 264 competitions that is thousands of settled fixtures, each one then run through the
+       * whole market catalogue. Bounded in kickoff order so the cost cannot grow without limit as the league
+       * list does - RECORD_LIMIT trims the oldest, which is the least interesting end of a daily table.
+       */
+      const past = await prisma.fixture.findMany({
+        where: { provider, status: "FINISHED", homeGoals: { not: null }, kickoffUtc: { gte: since, lt: todayStart }, predictions: { some: { lockedAt: { not: null } } }, ...(focus ? { league: { focusGroup: focus } } : {}) },
+        include: { homeTeam: true, awayTeam: true, predictions: { where: { lockedAt: { not: null } }, take: 1, omit: HEAVY_JSON } },
+        orderBy: { kickoffUtc: "desc" },
+        take: RECORD_LIMIT,
+      });
+      T.mark("record query", `${past.length} settled`);
+      const pastQuotes = list === "value" ? quoteMaps(
+        // The SQL already cuts at each fixture's lock; the map is passed too, so the guarantee is stated twice.
+        await latestQuotes(past.map((f) => f.id), true),
+        new Map(past.map((f) => [f.id, f.predictions[0].lockedAt!])),
+      ) : new Map<string, QuoteMap>();
+      type Day = { day: string; n: number; hits: number; avgP: number; profit?: number };
+      // Boundaries computed once instead of formatting every fixture's date, and pushed rather than
+      // rebuilt - the spread form copies the whole bucket per insert, which is quadratic for no reason.
+      const buckets = dayBuckets(todayStart, 7, zone);
+      const byDay = new Map<string, (typeof past)[number][]>();
+      for (const f of past) {
+        const k = buckets.keyOf(f.kickoffUtc);
+        if (!k) continue;
+        const bucket = byDay.get(k);
+        if (bucket) bucket.push(f); else byDay.set(k, [f]);
+      }
+      const recordDays: Day[] = [...byDay.entries()].sort(([a], [b]) => b.localeCompare(a)).map(([day, fs]) => {
+        const res = (f: (typeof fs)[number]) => ({ h: f.homeGoals!, a: f.awayGoals!, hc: f.homeCorners, ac: f.awayCorners, hs: f.homeShots, as: f.awayShots, hh: f.htHome, ha: f.htAway });
+        const lines = (f: (typeof fs)[number]) => ({ corners: f.predictions[0].cornersLine, shots: f.predictions[0].shotsLine });
+        if (list === "likely") {
+          const scored = selectTop(fs.map((f) => ({ item: f, id: f.id, startMs: f.kickoffUtc.getTime(), tips: tipsFor(f.predictions[0], f.homeTeam.name, f.awayTeam.name, sel) })), sel)
+            .map(({ item, tip }) => ({ tip, hit: tipHit(tip.key, item.homeGoals!, item.awayGoals!, res(item), lines(item)) })).filter((x) => x.hit != null);
+          return { day, n: scored.length, hits: scored.filter((x) => x.hit).length, avgP: scored.reduce((s, x) => s + x.tip.p, 0) / (scored.length || 1) };
+        }
+        const picks = selectTopValue(fs.flatMap((f) => { const q = pastQuotes.get(f.id); return q ? [{ item: f, id: f.id, startMs: f.kickoffUtc.getTime(), tips: valueTips(f.predictions[0], q, f.homeTeam.name, f.awayTeam.name, { maxOdds: cap, market: sel }) }] : []; }))
+          .map(({ item, tip }) => ({ tip, hit: marketHit(tip.key, res(item), lines(item)) })).filter((x) => x.hit != null);
+        const roi = flatStakeRoi(picks.map((x) => ({ odds: x.tip.odds, hit: !!x.hit })));
+        return { day, n: roi.n, hits: roi.hits, avgP: picks.reduce((s, x) => s + x.tip.p, 0) / (picks.length || 1), profit: roi.profit };
+      }).filter((r) => r.n);
+      return recordDays;
+    },
+    ["top-record", ...recordKey],
+    { revalidate: 600, tags: ["top-record"] },
+  );
+  const record = await buildRecord();
   T.mark("record", `${record.length} day(s)`);
   T.done();
   const tot = record.reduce((s, r) => ({ n: s.n + r.n, h: s.h + r.hits, p: s.p + r.avgP * r.n, profit: s.profit + (r.profit ?? 0) }), { n: 0, h: 0, p: 0, profit: 0 });

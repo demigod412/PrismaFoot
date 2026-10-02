@@ -20,3 +20,14 @@ body { -webkit-tap-highlight-color: transparent; font-feature-settings: "ss01", 
 @media (prefers-reduced-motion: reduce) { .route-bar { animation: none; width: 100%; opacity: 0.6; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 .pb-safe { padding-bottom: max(env(safe-area-inset-bottom), 0px); }
+
+/*
+ * The navigation progress bar. Indeterminate on purpose: the server render takes as long as it takes and
+ * a fake percentage would be a lie, but a moving bar answers the only question being asked — is it still
+ * working, or is it broken?
+ */
+@keyframes nav-progress {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+.animate-nav-progress { animation: nav-progress 1.1s ease-in-out infinite; }

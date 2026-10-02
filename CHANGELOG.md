@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.20.0 — a loader you can actually see, and filters that stop rebuilding the record
+
+### The filters were working. They just gave no sign of it.
+Choosing a market ran a server render of a second or two, during which the only feedback was a 14-pixel
+spinner replacing the chevron inside the dropdown. On a phone that is invisible, and the honest conclusion
+is that the page is broken — which is exactly how it was reported. `loading.tsx` could not help, because a
+change of query string on the same route never re-suspends the segment.
+
+So there is now a **progress bar across the top of the viewport** whenever a filter navigation is in
+flight: the part of the screen the eye is already on, rather than a corner of a control. Indeterminate on
+purpose — a server render takes as long as it takes, and a fake percentage would be a lie, but a moving bar
+answers the only question being asked.
+
+The dropdown also **disables itself while busy**. Tapping through three markets in a second queued three
+renders and the last one won, which looked like the filter ignoring the choice.
+
+### The record is cached, so trying six markets costs it once
+The seven-day track record is the expensive half of the page and it does not change between filter clicks
+the way the list does. It is now cached for ten minutes, keyed by list, market, odds ceiling, focus **and
+the viewing timezone** — the last because the timezone decides where day boundaries fall, and sharing a
+record between people in different zones would be wrong.
+
+Ten minutes is safe: the figures only move when a result settles, and the settle job runs four times an
+hour. What it buys is that clicking through markets pays for the record once rather than once per click.
+
+### Slip legs name their competition
+A saved leg now records "Italy · Serie B" alongside the match, and shows it. Legs saved before the field
+existed simply do not show one — a stored slip is never rewritten, so the display falls back rather than
+inventing a league.
+
 ## 0.19.1 — Best value: 4.3s to well under one
 
 0.19.0 fixed the Most-likely list (0.6-0.8s across every filter, and GG2+ returns 50 rows where it

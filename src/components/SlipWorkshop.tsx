@@ -59,6 +59,9 @@ export function SlipWorkshop({ slips, activeId, zone }: { slips: SlipView[]; act
                     <div className="min-w-0 flex-1">
                       <Link href={`/match/${l.fixtureId}`} className="block truncate text-sm text-slate-100 hover:text-edge">{l.match}</Link>
                       <div className="num text-[11px] text-slate-500">{fmt(l.kickoff)} {tzOffsetLabel(zone, new Date(l.kickoff))}{l.result ? ` · FT ${l.result}` : l.started ? " · started" : ""}</div>
+                      {/* Only when the leg carries it: legs saved before the field existed have none,
+                          and a stored slip is never rewritten. */}
+                      {l.league && <div className="truncate text-[11px] text-slate-500">{l.league}</div>}
                       <div className="mt-1 text-xs text-edge">{l.label}</div>
                     </div>
                     <div className="flex flex-col items-end gap-1">

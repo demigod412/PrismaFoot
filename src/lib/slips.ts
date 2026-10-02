@@ -4,6 +4,11 @@ import type { MarketKey } from "./markets";
 export interface Leg {
   fixtureId: string; market: MarketKey; label: string; match: string; kickoff: string; // ISO
   p: number; band: string; addedAt: string;
+  /**
+   * "Italy - Serie B". Optional because legs saved before it existed do not carry it, and a stored slip
+   * is never rewritten — so the display falls back to showing nothing rather than inventing a league.
+   */
+  league?: string;
 }
 export const MAX_LEGS = 30;
 
