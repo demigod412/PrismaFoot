@@ -283,7 +283,6 @@ describe("the shape markets are exact, not approximated", () => {
 });
 
 import { bothTeamsAtLeast } from "@/lib/model/dixonColes";
-import { MIN_P_NAMED } from "@/lib/top";
 
 describe("GG2+ (both teams to score two or more)", () => {
   it("equals the summed region of the matrix, and BTTS at k = 1", () => {

@@ -1,4 +1,5 @@
 import "server-only";
+import { Prisma as PrismaNS } from "@prisma/client";
 import type { Prediction, Prisma } from "@prisma/client";
 import type { MarketSource } from "./markets";
 import { prisma } from "./db";
@@ -195,4 +196,48 @@ export async function next48h() {
 export async function window14d() {
   const now = new Date();
   return getBoard({ from: new Date(now.getTime() - 2 * 3600_000), to: new Date(now.getTime() + FIXTURE_WINDOW_DAYS * DAY) });
+}
+
+export interface QuoteRow { fixtureId: string; market: string; odds: number; best: number; books: number; fetchedAt: Date }
+
+/*
+ * -- The newest quote per fixture and market, and nothing else ---------------------------------------
+ *
+ * OddsQuote is append-only: every odds sync writes a fresh row per market per fixture, whether the price
+ * moved or not. Nothing prunes it, so a fixture sitting in the window for a fortnight collects a row per
+ * market per sync for a fortnight.
+ *
+ * Every caller then threw almost all of it away. `quoteMaps` walks the rows newest-first and keeps the
+ * FIRST it sees per market - so of the hundreds of rows loaded for a fixture, about twenty-six were used.
+ * On the value list that was two seconds of the four-second page, twice over: once for the upcoming
+ * fixtures and again for the settled ones behind the record.
+ *
+ * DISTINCT ON does the same selection in the database, and `@@index([fixtureId, market, fetchedAt])`
+ * already exists to serve exactly this ordering. Raw SQL because DISTINCT ON has no query-API equivalent,
+ * and because the alternative - Prisma's `distinct`, which it may apply in memory after fetching
+ * everything - would be the same bug wearing a nicer API.
+ */
+export async function latestQuotes(fixtureIds: string[], beforeLock = false): Promise<QuoteRow[]> {
+  if (!fixtureIds.length) return [];
+  const ids = PrismaNS.join(fixtureIds);
+  if (!beforeLock) {
+    return prisma.$queryRaw<QuoteRow[]>`
+      SELECT DISTINCT ON ("fixtureId", market) "fixtureId", market, odds, best, books, "fetchedAt"
+      FROM "OddsQuote" WHERE "fixtureId" IN (${ids})
+      ORDER BY "fixtureId", market, "fetchedAt" DESC`;
+  }
+  /*
+   * For a settled fixture the record must use the price as it stood at the lock, not the closing one -
+   * otherwise it scores calls against odds nobody could have taken. The cutoff is per fixture, so it
+   * joins the lock moment in rather than being applied afterwards in JS.
+   */
+  return prisma.$queryRaw<QuoteRow[]>`
+    SELECT DISTINCT ON (q."fixtureId", q.market) q."fixtureId", q.market, q.odds, q.best, q.books, q."fetchedAt"
+    FROM "OddsQuote" q
+    JOIN (
+      SELECT "fixtureId", max("lockedAt") AS lock_at FROM "Prediction"
+      WHERE "lockedAt" IS NOT NULL GROUP BY "fixtureId"
+    ) l ON l."fixtureId" = q."fixtureId"
+    WHERE q."fixtureId" IN (${ids}) AND q."fetchedAt" <= l.lock_at
+    ORDER BY q."fixtureId", q.market, q."fetchedAt" DESC`;
 }

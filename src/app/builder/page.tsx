@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { dataMode } from "@/lib/mode";
-import { BUILDER_LIMIT, getBoard } from "@/lib/queries";
+import { BUILDER_LIMIT, getBoard, latestQuotes } from "@/lib/queries";
 import { allMarkets, GROUP_LABEL, marketHit, type MarketKey } from "@/lib/markets";
 import { buildSlips, legHint, oneInN, SAFE_MAX_LEG_ODDS, type Candidate } from "@/lib/builder";
 import { getSetting } from "@/lib/secrets";
@@ -52,7 +52,8 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
   const fixtures = await getBoard({
     from: now, to: new Date(now.getTime() + Math.min(days, FIXTURE_WINDOW_DAYS) * DAY), take: BUILDER_LIMIT,
   });
-  const quotes = await prisma.oddsQuote.findMany({ where: { fixtureId: { in: fixtures.map((f) => f.id) } }, orderBy: { fetchedAt: "desc" } });
+  // Newest per fixture and market, selected in the database - see latestQuotes.
+  const quotes = await latestQuotes(fixtures.map((f) => f.id));
 
   // Every market of every match is a candidate: main lines, alternative lines and specials.
   const candidates: Candidate[] = fixtures.flatMap((f) => {

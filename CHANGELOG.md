@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.19.1 — Best value: 4.3s to well under one
+
+0.19.0 fixed the Most-likely list (0.6-0.8s across every filter, and GG2+ returns 50 rows where it
+returned none). The timings it added then pinned what was left:
+
+```
+top/value query=281ms   list=1998ms   record query=260ms   record=1675ms   total=4215ms
+```
+
+Nearly all of it was odds, in two places.
+
+### The quote tables were read whole and then thrown away
+`OddsQuote` is append-only: every sync writes a fresh row per market per fixture, whether the price moved
+or not, and nothing prunes it. A fixture sitting in the window for a fortnight collects a row per market
+per sync for a fortnight.
+
+Every caller then discarded almost all of it. `quoteMaps` walks the rows newest-first and keeps **the first
+it sees per market** — so of the hundreds loaded per fixture, about twenty-six were used. The value list
+paid that twice: once for the 885 upcoming fixtures, again for the 890 settled ones behind the record.
+
+`DISTINCT ON (fixtureId, market)` makes the database do that selection, and
+`@@index([fixtureId, market, fetchedAt])` already existed to serve exactly this ordering. Raw SQL, because
+DISTINCT ON has no query-API equivalent and Prisma's `distinct` may apply it in memory after fetching
+everything — the same bug wearing a nicer API.
+
+The odds builder had the identical unbounded query and gets the same treatment.
+
+### The lock cutoff moved into SQL
+The record must score a call against the price **as it stood at the lock**, not the closing one, or it
+credits odds nobody could have taken. That cutoff is per fixture, so it now joins the lock moment in rather
+than being filtered afterwards in JavaScript. The JS cutoff is still passed as well, so the guarantee is
+stated in both places.
+
 ## 0.19.0 — leagues carry their country, and filtering the Top 50 actually returns something
 
 ### "Italy · Serie B", not "Serie B"

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { dataMode } from "@/lib/mode";
-import { attachLatestPredictions, fixtureBaseInclude, HEAVY_JSON, RECORD_LIMIT } from "@/lib/queries";
+import { attachLatestPredictions, fixtureBaseInclude, HEAVY_JSON, latestQuotes, RECORD_LIMIT } from "@/lib/queries";
 import { phases } from "@/lib/timing";
 import { leagueLabel } from "@/lib/leagues";
 import { selectTop, tipHit, tipsFor, TOP_N, WINDOWS, CAPS, type Tip } from "@/lib/top";
@@ -77,7 +77,7 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
     likely = selectTop(fixtures.flatMap((f) => f.predictions[0] ? [{ item: f, id: f.id, startMs: f.kickoffUtc.getTime(), tips: tipsFor(f.predictions[0], ...names(f), sel) }] : []), sel)
       .map(({ item, tip }) => ({ f: item, t: tip }));
   } else {
-    qs = quoteMaps(await prisma.oddsQuote.findMany({ where: { fixtureId: { in: fixtures.map((f) => f.id) } }, orderBy: { fetchedAt: "desc" } }));
+    qs = quoteMaps(await latestQuotes(fixtures.map((f) => f.id)));
     quotesAvailable = qs.size > 0;
     value = selectTopValue(fixtures.flatMap((f) => {
       const p = f.predictions[0], q = qs.get(f.id);
@@ -143,7 +143,8 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
   });
   T.mark("record query", `${past.length} settled`);
   const pastQuotes = list === "value" ? quoteMaps(
-    await prisma.oddsQuote.findMany({ where: { fixtureId: { in: past.map((f) => f.id) } }, orderBy: { fetchedAt: "desc" } }),
+    // The SQL already cuts at each fixture's lock; the map is passed too, so the guarantee is stated twice.
+    await latestQuotes(past.map((f) => f.id), true),
     new Map(past.map((f) => [f.id, f.predictions[0].lockedAt!])),
   ) : new Map<string, QuoteMap>();
   type Day = { day: string; n: number; hits: number; avgP: number; profit?: number };
