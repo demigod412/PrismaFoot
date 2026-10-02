@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.20.1 — prune the odds table too, and instrument the builder
+
+The 0.20.0 timings showed the cached record working exactly as intended — `record=1ms` on a repeat click,
+and the likely list down to **305ms**. They also showed what is left: Best value spends ~1.9s in its `list`
+phase, which is the odds lookup, and the odds builder takes 3.8s with no instrumentation at all.
+
+### OddsQuote was never pruned
+Predictions were pruned in 0.18.0. Quotes were not, and they accumulate the same way: every odds sync
+writes a fresh row per market per fixture whether the price moved or not. The table therefore holds every
+price ever seen for every fixture ever synced — and `DISTINCT ON` still has to scan past all of it to find
+the newest.
+
+What the app actually reads is narrow: the newest quote per market for live pages, and the price as it stood
+at the lock for the last **seven** days (Top 50) and **fourteen** (builder). Nothing reads a quote attached
+to a fixture older than that.
+
+So the cut is **by fixture kickoff**, not by row age or count — `ODDS_KEEP_DAYS`, default 21, floored at 15
+so it can never reach inside the builder's window. That keeps the rule trivially safe: a fixture outside
+both record windows can have no quote anyone will ever ask for. Deleting the oldest rows per market instead
+would risk dropping the pre-lock price a record still needs, which is the one price that must survive.
+
+`npm run prune` now reports both tables and still deletes nothing without `--apply`. The nightly job does
+both.
+
+### The builder reports its phases
+3.8 seconds with no breakdown. It now marks the query, the candidate fan-out and the slip search
+separately, so the next question about it is answerable from the journal rather than by guessing — which is
+how the last four performance problems were actually found.
+
 ## 0.20.0 — a loader you can actually see, and filters that stop rebuilding the record
 
 ### The filters were working. They just gave no sign of it.

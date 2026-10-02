@@ -6,6 +6,7 @@ import { allMarkets, GROUP_LABEL, marketHit, type MarketKey } from "@/lib/market
 import { buildSlips, legHint, oneInN, SAFE_MAX_LEG_ODDS, type Candidate } from "@/lib/builder";
 import { getSetting } from "@/lib/secrets";
 import { leagueLabel } from "@/lib/leagues";
+import { phases } from "@/lib/timing";
 import { trustFor, type MarketTrust, TRUST_SETTING } from "@/lib/trust";
 
 import { FIXTURE_WINDOW_DAYS } from "@/lib/window";
@@ -49,11 +50,13 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
    * Without this the fourteen-day view fanned every fixture in every competition out into candidate
    * legs at once, which is one of the two requests that were getting the server OOM-killed.
    */
+  const T = phases(`builder/${mode}`);
   const fixtures = await getBoard({
     from: now, to: new Date(now.getTime() + Math.min(days, FIXTURE_WINDOW_DAYS) * DAY), take: BUILDER_LIMIT,
   });
   // Newest per fixture and market, selected in the database - see latestQuotes.
   const quotes = await latestQuotes(fixtures.map((f) => f.id));
+  T.mark("query", `${fixtures.length} fixtures, ${quotes.length} quotes`);
 
   // Every market of every match is a candidate: main lines, alternative lines and specials.
   const candidates: Candidate[] = fixtures.flatMap((f) => {
@@ -77,7 +80,9 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
   });
   const pickable = highOnly ? candidates.filter((c) => c.band === "HIGH") : candidates;
   const withOdds = pickable.some((c) => c.real);
+  T.mark("candidates", `${candidates.length} legs`);
   const slips = buildSlips(pickable, { target, maxLegs, minLegs, mode: withOdds ? mode : "safe", band: "LOW", maxLegOdds: legCap, evenLegs }, 3);
+  T.mark("search", `${slips.length} slip(s)`);
   const hint = legHint(target);
 
   // Track record: build the same target from locked calls on each of the last 14 days and score it.

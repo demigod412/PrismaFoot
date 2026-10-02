@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { getPrimaryProvider, PROVIDER_ENUM } from "@/lib/providers";
 import { ingest } from "@/lib/pipeline/ingest";
 import { lockDue, settle, snapshotAccuracy, syncResults } from "@/lib/pipeline/ledger";
-import { prunePredictions } from "@/lib/pipeline/prune";
+import { prunePredictions, pruneQuotes } from "@/lib/pipeline/prune";
 import type { Provider } from "@prisma/client";
 
 export const maxDuration = 300;
@@ -22,7 +22,7 @@ export async function GET(req: Request) {
   try {
     if (job === "lock") return NextResponse.json({ ok: true, locked: await lockDue(prisma) });
     // Nightly: drop superseded unlocked revisions. Locked rows are never candidates - see prune.ts.
-    if (job === "prune") return NextResponse.json({ ok: true, pruned: await prunePredictions(prisma) });
+    if (job === "prune") return NextResponse.json({ ok: true, predictions: await prunePredictions(prisma), quotes: await pruneQuotes(prisma) });
     const p = await getPrimaryProvider();
     if (!p) return NextResponse.json({ mode: "demo", message: "No usable provider key.", locked: await lockDue(prisma) });
     const provider = PROVIDER_ENUM[p.id] as Provider;
