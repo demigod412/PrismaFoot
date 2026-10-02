@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.18.0 — the fix that took the sister app from 121 seconds to 1.9, applied here before it bites
+
+EdgeBoard shares this app's design and hit a wall: a page showing 323 rows took **121 seconds**. Postgres
+accounted for **2** of them. Everything found there applies here, so it is all ported now rather than
+waiting for the same thing to happen.
+
+### The nested take is gone from every list
+Every list asked for the newest prediction like this:
+
+```ts
+include: { predictions: { orderBy: [{ lockedAt: "desc" }, { revision: "desc" }], take: 1 } }
+```
+
+Prisma cannot express "the newest row per parent" in SQL through a nested take, and does not try. It issues
+`SELECT <every column> FROM "Prediction" WHERE "fixtureId" IN (...)` — **no ORDER BY, no LIMIT** — pulls
+every revision of every fixture into its query engine, and does the ordering and the `take: 1` there, in
+memory.
+
+It is invisible from every angle: the JS heap stays small because the rows never reach V8, the single
+statement in the query log looks cheap and is, and the data behind it is tiny. It degrades with **revisions
+per fixture**, not total rows — which is why this app was still fast while the sister app was not, and why
+it would have arrived here eventually. `repredict` and the hourly sync both append revisions.
+
+Replaced with two queries: one selecting four small columns to pick the winning revision per fixture, then
+one fetching exactly those rows. Applied to the board, the matrix board and the Top 50's own query. The
+match page keeps the nested form — one row, a handful of revisions, no cost.
+
+### Superseded revisions are pruned
+`npm run prune` reports; `npm run prune -- --apply` deletes. Also nightly at 04:40.
+
+**Revisions with `lockedAt` set are never candidates.** They are the ledger — the call exactly as it stood
+fifteen minutes before kickoff, the only thing the accuracy page scores. The delete filters on
+`WHERE "lockedAt" IS NULL`, so a locked row cannot be selected at all, and the script re-counts locked rows
+afterwards and says whether the number moved. Beyond that the newest 3 unlocked revisions per fixture
+survive (`PREDICTION_KEEP_REVISIONS`, or `--keep`).
+
+### The pages report their own timings
+One line per phase to the journal, with row counts, rss and heap, printed as each phase completes rather
+than buffered to the end — a killed process discards buffered stderr, which is how the one diagnostic that
+mattered on the sister app was lost. This is what located that bug in a single request after several rounds
+of reading code and guessing wrong.
+
 ## 0.17.1 — an empty Top 50 now says which kind of empty it is
 
 Selecting GG2+ in the Top 50 gave "No upcoming match in this window qualifies yet. Try a longer window."

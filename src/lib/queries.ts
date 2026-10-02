@@ -1,5 +1,6 @@
 import "server-only";
-import type { Prisma } from "@prisma/client";
+import type { Prediction, Prisma } from "@prisma/client";
+import type { MarketSource } from "./markets";
 import { prisma } from "./db";
 import { dataMode } from "./mode";
 import { FIXTURE_WINDOW_DAYS } from "./window";
@@ -29,27 +30,79 @@ export const withLatestPrediction = {
   predictions: { orderBy: [{ lockedAt: { sort: "desc", nulls: "last" } }, { revision: "desc" }], take: 1 },
 } satisfies Prisma.FixtureInclude;
 
-/** The same, without the heavy blobs. What every list and board should use. */
-export const withLatestPredictionLean = {
-  homeTeam: true, awayTeam: true, league: true,
-  predictions: {
-    orderBy: [{ lockedAt: { sort: "desc", nulls: "last" } }, { revision: "desc" }],
-    take: 1,
-    omit: HEAVY_JSON,
-  },
-} satisfies Prisma.FixtureInclude;
+/** Everything but the three blobs only the match page opens - `matrix` is kept. */
+const MATRIX_OMIT = { topScorelines: true, rationale: true, features: true } as const;
+export type MatrixSource = Omit<Prediction, "topScorelines" | "rationale" | "features">;
 
-/** Lean, but keeping `matrix` — for the two scanners that read the scoreline grid. */
-export const withLatestPredictionMatrix = {
-  homeTeam: true, awayTeam: true, league: true,
-  predictions: {
-    orderBy: [{ lockedAt: { sort: "desc", nulls: "last" } }, { revision: "desc" }],
-    take: 1,
-    omit: { topScorelines: true, rationale: true, features: true },
-  },
-} satisfies Prisma.FixtureInclude;
+/** A fixture's own relations. No predictions: those are attached separately, deliberately. */
+export const fixtureBaseInclude = { homeTeam: true, awayTeam: true, league: true } satisfies Prisma.FixtureInclude;
 
-export type BoardFixture = Prisma.FixtureGetPayload<{ include: typeof withLatestPredictionLean }>;
+type WithBase = Prisma.FixtureGetPayload<{ include: typeof fixtureBaseInclude }>;
+export type BoardFixture = WithBase & { predictions: MarketSource[] };
+export type BoardFixtureWithMatrix = WithBase & { predictions: MatrixSource[] };
+
+/*
+ * -- Why the latest prediction is fetched separately -------------------------------------------------
+ *
+ * The obvious form is `include: { predictions: { orderBy: [...], take: 1 } }`, and every list here used
+ * to do that. It is a trap wherever a fixture has more than a couple of revisions.
+ *
+ * Prisma cannot express "the newest row per parent" in SQL through a nested take, so it does not try. It
+ * issues `SELECT <every column> FROM "Prediction" WHERE "fixtureId" IN (...)` - no ORDER BY, no LIMIT -
+ * pulls EVERY revision of EVERY fixture into its query engine, and does the ordering and the take: 1
+ * there, in memory.
+ *
+ * Measured on the sister app, which shares this design: a page showing 323 games at 23 revisions each
+ * spent 2.0 seconds in SQL and 119 seconds in that in-engine sort. It is invisible from JS, because the
+ * rows never reach V8, and invisible in the query log, because the one statement looks cheap and is.
+ *
+ * Moving the sort into JS does not help either - that was the first attempt there, and it turned 121
+ * seconds into an out-of-memory kill, because the rows then get deserialised into objects. The cost is
+ * fetching every revision in order to use one of them.
+ *
+ * So: one cheap query to pick the winners by id, then one to fetch exactly those rows.
+ */
+async function winningPredictionIds(fixtureIds: string[]): Promise<Map<string, string>> {
+  // Four small columns. Every revision is still scanned - there is no way to know which is newest
+  // without looking - but at about a hundred bytes a row that is cheap, and no Json is touched.
+  const keys = await prisma.prediction.findMany({
+    where: { fixtureId: { in: fixtureIds } },
+    select: { id: true, fixtureId: true, lockedAt: true, revision: true },
+    orderBy: [{ lockedAt: { sort: "desc", nulls: "last" } }, { revision: "desc" }],
+  });
+  const winner = new Map<string, string>();
+  for (const k of keys) if (!winner.has(k.fixtureId)) winner.set(k.fixtureId, k.id);
+  return winner;
+}
+
+function zip<T extends { id: string }, P extends { id: string }>(fixtures: T[], winner: Map<string, string>, rows: P[]) {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return fixtures.map((f) => {
+    const id = winner.get(f.id);
+    const p = id ? byId.get(id) : undefined;
+    return { ...f, predictions: p ? [p] : [] };
+  });
+}
+
+/** The newest prediction per fixture, without the four heavy blobs. */
+export async function attachLatestPredictions<T extends { id: string }>(fixtures: T[]): Promise<(T & { predictions: MarketSource[] })[]> {
+  if (!fixtures.length) return [];
+  const winner = await winningPredictionIds(fixtures.map((f) => f.id));
+  const rows = winner.size
+    ? await prisma.prediction.findMany({ where: { id: { in: [...winner.values()] } }, omit: HEAVY_JSON })
+    : [];
+  return zip(fixtures, winner, rows);
+}
+
+/** The same, keeping `matrix`. Only the scanners that read the scoreline grid need this. */
+export async function attachLatestPredictionsWithMatrix<T extends { id: string }>(fixtures: T[]): Promise<(T & { predictions: MatrixSource[] })[]> {
+  if (!fixtures.length) return [];
+  const winner = await winningPredictionIds(fixtures.map((f) => f.id));
+  const rows = winner.size
+    ? await prisma.prediction.findMany({ where: { id: { in: [...winner.values()] } }, omit: MATRIX_OMIT })
+    : [];
+  return zip(fixtures, winner, rows);
+}
 
 /**
  * Fixtures for a board or a scanner.
@@ -71,25 +124,25 @@ const boardWhere = (provider: Prisma.FixtureWhereInput["provider"], o: BoardOpts
  * `take` is a ceiling rather than a suggestion. A window that grows with the league list is how one
  * request came to ask for a gigabyte and a half; kickoff order means the cut falls furthest out.
  */
-export async function getBoard(opts: BoardOpts) {
+export async function getBoard(opts: BoardOpts): Promise<BoardFixture[]> {
   const { provider } = await dataMode();
-  return prisma.fixture.findMany({
+  return attachLatestPredictions(await prisma.fixture.findMany({
     where: boardWhere(provider, opts),
-    include: withLatestPredictionLean,
+    include: fixtureBaseInclude,
     orderBy: [{ kickoffUtc: "asc" }],
     ...(opts.take ? { take: opts.take } : {}),
-  });
+  }));
 }
 
 /** The same, keeping `matrix`. Only the two scanners that read the scoreline grid should use this. */
-export async function getBoardWithMatrix(opts: BoardOpts) {
+export async function getBoardWithMatrix(opts: BoardOpts): Promise<BoardFixtureWithMatrix[]> {
   const { provider } = await dataMode();
-  return prisma.fixture.findMany({
+  return attachLatestPredictionsWithMatrix(await prisma.fixture.findMany({
     where: boardWhere(provider, opts),
-    include: withLatestPredictionMatrix,
+    include: fixtureBaseInclude,
     orderBy: [{ kickoffUtc: "asc" }],
     ...(opts.take ? { take: opts.take } : {}),
-  });
+  }));
 }
 
 /** Fixtures a list query can carry at once. Kickoff order, so the cut falls on the furthest away. */

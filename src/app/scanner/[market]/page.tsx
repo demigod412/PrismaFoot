@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { BLEND_LIMIT, BOARD_LIMIT, getBoard, getBoardWithMatrix } from "@/lib/queries";
+import { phases } from "@/lib/timing";
 import { FIXTURE_WINDOW_DAYS } from "@/lib/window";
 import { NEEDS_MATRIX, SCANNERS, scan, DEFAULT_FLOORS, type ScannerFloors, type ScannerSlug } from "@/lib/scanners";
 import { getSetting } from "@/lib/secrets";
@@ -28,8 +29,10 @@ export default async function ScannerPage({ params, searchParams }: { params: Pr
     from: now, to: new Date(now.getTime() + FIXTURE_WINDOW_DAYS * 86_400_000), focus,
     take: def.slug === "blend" ? BLEND_LIMIT : BOARD_LIMIT,
   };
+  const T = phases(`scanner/${def.slug}`);
   const fixtures = (NEEDS_MATRIX.has(def.slug) ? await getBoardWithMatrix(q) : await getBoard(q))
     .filter((f) => f.predictions[0]);
+  T.mark("query", `${fixtures.length} fixtures`);
   const focusChips = (
     <div data-no-ptr className="mb-4 max-w-xs">
         <FilterSelect label="Competitions" value={focus ?? "all"}

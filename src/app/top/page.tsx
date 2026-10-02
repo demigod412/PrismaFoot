@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { dataMode } from "@/lib/mode";
-import { HEAVY_JSON, withLatestPredictionLean } from "@/lib/queries";
+import { attachLatestPredictions, fixtureBaseInclude, HEAVY_JSON } from "@/lib/queries";
+import { phases } from "@/lib/timing";
 import { selectTop, tipHit, tipsFor, TOP_N, WINDOWS, CAPS, type Tip } from "@/lib/top";
 import { allMarkets, GROUP_LABEL, MARKET_OPTIONS, marketHit, parseSelector, selectorLabel, selectorMatches, type MarketGroup, type MarketKey } from "@/lib/markets";
 import { flatStakeRoi, selectTopValue, valueTips, VALUE, type ValueTip, VALUE_CEILINGS } from "@/lib/value";
@@ -56,13 +57,14 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
   const now = new Date(), todayStart = dayStart(dayKeyIn(now, zone), zone);
   const end = new Date(todayStart.getTime() + days * DAY);
 
-  const fixtures = await prisma.fixture.findMany({
+  const T = phases(`top/${list}`);
+  // Lean, and the prediction is attached separately rather than as a nested take - see
+  // attachLatestPredictions for what that costs.
+  const fixtures = await attachLatestPredictions(await prisma.fixture.findMany({
     where: { provider, status: "SCHEDULED", kickoffUtc: { gt: now, lt: end }, ...(focus ? { league: { focusGroup: focus } } : {}) },
-    // Lean: this page reads probabilities and the two stats lines, never the scoreline grid or the
-    // rationale. Seven days across every competition is thousands of rows, and the four Json columns
-    // on each of them were most of the memory a single request asked for.
-    include: withLatestPredictionLean, orderBy: { kickoffUtc: "asc" },
-  });
+    include: fixtureBaseInclude, orderBy: { kickoffUtc: "asc" },
+  }));
+  T.mark("query", `${fixtures.length} fixtures`);
   const names = (f: (typeof fixtures)[number]) => [f.homeTeam.shortName ?? f.homeTeam.name, f.awayTeam.shortName ?? f.awayTeam.name] as const;
 
   // ---------- current list ----------
