@@ -349,3 +349,34 @@ describe("GG2+ (both teams to score two or more)", () => {
     expect(tipsFor(pred({ calGg2: MIN_P_NAMED / 2 } as never), "H", "A", "k:gg2")).toEqual([]);
   });
 });
+
+import { DEFAULT_FLOORS, SCANNERS } from "@/lib/scanners";
+import { BOARD_MARKETS, BOARD_MARKET_SLUGS } from "@/lib/boardMarkets";
+
+describe("every market is reachable from every surface that offers markets", () => {
+  /*
+   * The board's market list was maintained by hand and had drifted to twenty of twenty-eight scanners, so
+   * the three shape markets, GG2+, Over 3.5 and the three matrix lists were offered in the Top 50 and on
+   * their own scanner pages but not on the fixtures board. Nothing failed; they were simply absent.
+   */
+  it("offers every scanner on the fixtures board, except the one that is a builder", () => {
+    const offered = new Set<string>(BOARD_MARKET_SLUGS);
+    const missing = SCANNERS.map((s) => s.slug).filter((s) => s !== "blend" && !offered.has(s));
+    expect(missing, `scanners missing from the fixtures board: ${missing.join(", ")}`).toEqual([]);
+    // Blend is interactive: there is no single pick it could put against a fixture.
+    expect(offered.has("blend")).toBe(false);
+  });
+
+  it("names a real scanner for every board entry", () => {
+    const slugs = new Set<string>(SCANNERS.map((s) => s.slug));
+    for (const m of BOARD_MARKETS) expect(slugs, `board offers "${m.slug}"`).toContain(m.slug);
+  });
+
+  it("has a floor for every scanner that compares against one", () => {
+    // A scanner whose floor is missing from DEFAULT_FLOORS reads undefined and silently passes nothing.
+    const floors = new Set(Object.keys(DEFAULT_FLOORS));
+    for (const k of ["o15", "o25", "o35", "u25", "u35", "u45", "btts", "bttsNo", "by2", "noWinBy2", "noBothHalves", "noRun3", "gg2"]) {
+      expect(floors, `DEFAULT_FLOORS.${k}`).toContain(k);
+    }
+  });
+});

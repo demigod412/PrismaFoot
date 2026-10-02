@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getBoardWithMatrix, getLeagues } from "@/lib/queries";
 import { leagueLabel } from "@/lib/leagues";
+import { BOARD_MARKETS as MARKETS } from "@/lib/boardMarkets";
 import { dayKeyIn, dayStart, fmtIn, isDayKey } from "@/lib/time";
 import { tz } from "@/lib/tz";
 import { prisma } from "@/lib/db";
@@ -15,18 +16,7 @@ import { countViews, fixtureView, isFixtureView, FIXTURE_VIEWS, VIEW_LABEL } fro
 import { cn } from "@/components/ui";
 
 export const metadata = { title: "Fixtures" };
-const MARKETS: { slug: ScannerSlug; label: string; group: string }[] = [
-  { slug: "all", label: "All markets", group: "" },
-  { slug: "win", label: "Win", group: "Result" }, { slug: "dc", label: "Double chance", group: "Result" }, { slug: "draw", label: "Draw", group: "Result" },
-  { slug: "winover", label: "Win or Over 2.5", group: "Result" }, { slug: "by2", label: "Win by 2+", group: "Result" },
-  { slug: "o15", label: "Over 1.5", group: "Goals" }, { slug: "o25", label: "Over 2.5", group: "Goals" }, { slug: "u25", label: "Under 2.5", group: "Goals" },
-  { slug: "u35", label: "Under 3.5", group: "Goals" }, { slug: "u45", label: "Under 4.5", group: "Goals" },
-  { slug: "btts", label: "Both teams to score", group: "Goals" }, { slug: "bttsno", label: "BTTS No", group: "Goals" },
-  { slug: "h1u15", label: "1st half Under 1.5", group: "Halves" }, { slug: "h1u25", label: "1st half Under 2.5", group: "Halves" },
-  { slug: "h2u25", label: "2nd half Under 2.5", group: "Halves" }, { slug: "htdraw", label: "Half-time draw", group: "Halves" },
-  { slug: "corners", label: "Corners", group: "Stats" }, { slug: "shots", label: "Total shots", group: "Stats" },
-  { slug: "safe", label: "Safe picks", group: "Other" },
-];
+
 
 /** The fixtures board is the landing page: a date strip, two filters and the matches for that day. */
 export default async function Home({ searchParams }: { searchParams: Promise<{ date?: string; league?: string; market?: string; show?: string }> }) {

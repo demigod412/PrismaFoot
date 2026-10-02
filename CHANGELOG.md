@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.22.0 — every market on the fixtures board, and Over 3.5 gets a scanner
+
+### The board offered twenty of twenty-eight scanners
+The fixtures page's Market filter was a hand-maintained list, and it had drifted. Missing from it, while
+being available in the Top 50 and on their own scanner pages:
+
+| Missing | |
+| --- | --- |
+| No win by 2+ | Not both halves O1.5 |
+| No 3 goals in a row | Both teams 2+ (GG2+) |
+| 2+ total goals | A team to score 1+ |
+| A team to score 2+ | Over 3.5 |
+
+All eight are there now. `blend` stays out as the one deliberate omission — it is an interactive builder,
+not a pick the board could put against a fixture.
+
+The list has also moved out of the page and into `src/lib/boardMarkets.ts`, and **a test now asserts that
+`blend` is the only scanner missing from it**. The reason this drifted is that nothing failed when it did:
+a scanner simply did not appear. That cannot happen silently again.
+
+### Over 3.5 had no scanner
+It was selectable in the Top 50 but there was no list for it, which is the same gap in the other direction.
+Added, with its own floor — default **0.35**, well below the other goals lists, because four goals is a lot
+and a floor borrowed from Over 1.5 would have passed nothing.
+
+A further test holds `DEFAULT_FLOORS` to the scanners that read it: a missing floor reads `undefined`, and
+a comparison against `undefined` silently passes nothing, which is exactly the kind of failure that looks
+like an empty list rather than a bug.
+
 ## 0.21.0 — stale statistics, and the builder's record cached
 
 Best value went **4.70s to 1.10s, then 0.67s warm**, and the measurement that got it there corrected my

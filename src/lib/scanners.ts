@@ -4,13 +4,13 @@ import { allMarkets, type MarketKey, type MarketSource, type MarketTip } from ".
 export type Market = MarketKey | "btts";
 export interface Pick { market: Market; label: string; p: number }
 
-export interface ScannerFloors { safeP: number; winMargin: number; o15: number; o25: number; btts: number; draw: number; team2: number; u25: number; u35: number; u45: number; dc: number; bttsNo: number; by2: number; corners: number; shots: number; h1u15: number; h1u25: number; h2u25: number; winOver: number; htDraw: number; noWinBy2: number; noBothHalves: number; noRun3: number; gg2: number }
+export interface ScannerFloors { safeP: number; winMargin: number; o15: number; o25: number; o35: number; btts: number; draw: number; team2: number; u25: number; u35: number; u45: number; dc: number; bttsNo: number; by2: number; corners: number; shots: number; h1u15: number; h1u25: number; h2u25: number; winOver: number; htDraw: number; noWinBy2: number; noBothHalves: number; noRun3: number; gg2: number }
 /*
  * Floors for the three shape markets are set where the market is actually selective. "Not both halves
  * over 1.5" sits above 0.85 on most fixtures and "no win by 2+" runs from 0.30 on a mismatch to 0.66 on
  * an even game, so a floor borrowed from the goals markets would either pass everything or nothing.
  */
-export const DEFAULT_FLOORS: ScannerFloors = { safeP: 0.7, winMargin: 0.1, o15: 0.72, o25: 0.55, btts: 0.55, draw: 0.3, team2: 0.45, u25: 0.55, u35: 0.72, u45: 0.85, dc: 0.75, bttsNo: 0.55, by2: 0.4, corners: 0.6, shots: 0.6, h1u15: 0.6, h1u25: 0.78, h2u25: 0.7, winOver: 0.7, htDraw: 0.3, noWinBy2: 0.6, noBothHalves: 0.85, noRun3: 0.8, gg2: 0.15 };
+export const DEFAULT_FLOORS: ScannerFloors = { safeP: 0.7, winMargin: 0.1, o15: 0.72, o25: 0.55, o35: 0.35, btts: 0.55, draw: 0.3, team2: 0.45, u25: 0.55, u35: 0.72, u45: 0.85, dc: 0.75, bttsNo: 0.55, by2: 0.4, corners: 0.6, shots: 0.6, h1u15: 0.6, h1u25: 0.78, h2u25: 0.7, winOver: 0.7, htDraw: 0.3, noWinBy2: 0.6, noBothHalves: 0.85, noRun3: 0.8, gg2: 0.15 };
 
 export const SCANNERS = [
   { slug: "all", name: "All", blurb: "Every fixture with a model call, ordered by kickoff." },
@@ -19,6 +19,7 @@ export const SCANNERS = [
   { slug: "2plus", name: "2+", blurb: "Two or more total goals (same as Over 1.5)." },
   { slug: "o15", name: "O1.5", blurb: "Over 1.5 goals above your floor." },
   { slug: "o25", name: "O2.5", blurb: "Over 2.5 goals above your floor." },
+  { slug: "o35", name: "O3.5", blurb: "Over 3.5 goals above your floor. Four goals is a lot: this clears a half only in the most open fixtures, so the floor is set well below the other goals lists." },
   { slug: "btts", name: "BTTS", blurb: "Both teams to score above your floor." },
   { slug: "u25", name: "U2.5", blurb: "Under 2.5 goals (0, 1 or 2 total) above your floor." },
   { slug: "u35", name: "U3.5", blurb: "Under 3.5 goals (3 or fewer) above your floor." },
@@ -113,6 +114,7 @@ export function scan(slug: ScannerSlug, p: MarketSource & { matrix?: unknown }, 
       return h >= a ? { market: "home", label: "Home 1+", p: h } : { market: "away", label: "Away 1+", p: a }; }
     case "2plus": case "o15": return p.calOver15 >= f.o15 ? { market: "over15", label: slug === "2plus" ? "2+ goals" : "Over 1.5", p: p.calOver15 } : null;
     case "o25": return p.calOver25 >= f.o25 ? { market: "over25", label: "Over 2.5", p: p.calOver25 } : null;
+    case "o35": return p.calOver35 >= f.o35 ? { market: "over35", label: "Over 3.5", p: p.calOver35 } : null;
     case "btts": return p.calBtts >= f.btts ? { market: "btts", label: "BTTS", p: p.calBtts } : null;
     case "u25": return 1 - p.calOver25 >= f.u25 ? { market: "under25", label: "Under 2.5", p: 1 - p.calOver25 } : null;
     case "u35": return 1 - p.calOver35 >= f.u35 ? { market: "under35", label: "Under 3.5", p: 1 - p.calOver35 } : null;
