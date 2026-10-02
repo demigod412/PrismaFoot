@@ -63,8 +63,7 @@ const db = new PrismaClient();
    * to 248ms with no change to the index or the query - Postgres simply did not know the table's shape.
    */
   await refreshStats(db);
-  console.log("
-Planner statistics refreshed for both tables.");
+  console.log("\nPlanner statistics refreshed for both tables.");
   console.log("\nDisk is reclaimed by autovacuum over the next while. To reclaim it now, without locking either table:");
   console.log("  sudo -u postgres psql -d pitchedge -c 'VACUUM (ANALYZE) \"Prediction\"; VACUUM (ANALYZE) \"OddsQuote\";'");
 })().catch((e) => { console.error(e); process.exitCode = 1; }).finally(() => db.$disconnect());
