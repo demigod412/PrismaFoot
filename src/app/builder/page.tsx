@@ -7,6 +7,7 @@ import { buildSlips, legHint, oneInN, SAFE_MAX_LEG_ODDS, type Candidate } from "
 import { getSetting } from "@/lib/secrets";
 import { leagueLabel } from "@/lib/leagues";
 import { phases } from "@/lib/timing";
+import { unstable_cache } from "next/cache";
 import { trustFor, type MarketTrust, TRUST_SETTING } from "@/lib/trust";
 
 import { FIXTURE_WINDOW_DAYS } from "@/lib/window";
@@ -85,36 +86,51 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
   T.mark("search", `${slips.length} slip(s)`);
   const hint = legHint(target);
 
-  // Track record: build the same target from locked calls on each of the last 14 days and score it.
-  const since = new Date(now.getTime() - 14 * DAY);
-  const locked = await prisma.prediction.findMany({
-    where: { lockedAt: { not: null }, fixture: { kickoffUtc: { gte: since, lt: dayStart(dayKeyIn(now, zone), zone) }, results: { some: {} } } },
-    include: { fixture: { include: { homeTeam: true, awayTeam: true, league: true, results: { orderBy: { settledAt: "desc" }, take: 1 } } } },
-  });
-  const byDay = new Map<string, typeof locked>();
-  // Boundaries once, and push rather than rebuild: see dayBuckets.
-  const buckets = dayBuckets(dayStart(dayKeyIn(now, zone), zone), 14, zone);
-  for (const l of locked) {
-    const k = buckets.keyOf(l.fixture.kickoffUtc);
-    if (!k) continue;
-    const bucket = byDay.get(k);
-    if (bucket) bucket.push(l); else byDay.set(k, [l]);
-  }
-  const record = [...byDay.entries()].sort(([a], [b]) => b.localeCompare(a)).flatMap(([day, ps]) => {
-    const cands: Candidate[] = ps.flatMap((x) => {
-      const H = x.fixture.homeTeam.shortName ?? x.fixture.homeTeam.name, A = x.fixture.awayTeam.shortName ?? x.fixture.awayTeam.name;
-      // The same exclusion as the live builder above, or this record would not describe it.
-      return allMarkets(x, H, A).filter((m) => !m.scannerOnly).map((m) => ({ matchId: x.fixtureId, league: leagueLabel(x.fixture.league), startMs: +x.fixture.kickoffUtc, match: `${H} v ${A}`,
-        label: m.label, market: m.key, group: m.group, p: m.p, odds: 1 / m.p, real: false, band: x.band }));
+  /*
+   * Track record: build the same target from locked calls on each of the last 14 days and score it.
+   *
+   * Cached for ten minutes. It re-runs the whole slip SEARCH once per day of the window - fourteen
+   * combinatorial searches - which the timings put at roughly two seconds of a three-and-a-half second
+   * page: more than the live search it sits beneath. It depends only on the slip settings, so those are
+   * the key, with the viewing timezone added because that decides where the day boundaries fall.
+   *
+   * Safe at ten minutes: it moves only when a result settles, and the settle job runs four times an hour.
+   */
+  const recordKey = [String(target), String(maxLegs), String(minLegs), String(evenLegs), String(highOnly), String(legCap ?? ""), zone] as const;
+  const record = await unstable_cache(async () => {
+    const since = new Date(now.getTime() - 14 * DAY);
+    const locked = await prisma.prediction.findMany({
+      where: { lockedAt: { not: null }, fixture: { kickoffUtc: { gte: since, lt: dayStart(dayKeyIn(now, zone), zone) }, results: { some: {} } } },
+      include: { fixture: { include: { homeTeam: true, awayTeam: true, league: true, results: { orderBy: { settledAt: "desc" }, take: 1 } } } },
     });
-    const [built] = buildSlips(cands, { target, maxLegs, minLegs, mode: "safe", band: "LOW", maxLegOdds: legCap, evenLegs }, 1);
-    if (!built) return [];
-    const res = (id: string) => { const f = ps.find((x) => x.fixtureId === id)!.fixture, r = f.results[0];
-      return { h: r.homeGoals, a: r.awayGoals, hc: f.homeCorners, ac: f.awayCorners, hs: f.homeShots, as: f.awayShots, hh: r.htHome, ha: r.htAway }; };
-    const legs = built.legs.map((l) => marketHit(l.market as MarketKey, res(l.matchId)));
-    if (legs.some((h) => h == null)) return [];
-    return [{ day, legs: built.legs.length, odds: built.odds, won: legs.every(Boolean), hits: legs.filter(Boolean).length }];
-  });
+    const byDay = new Map<string, typeof locked>();
+    // Boundaries once, and push rather than rebuild: see dayBuckets.
+    const buckets = dayBuckets(dayStart(dayKeyIn(now, zone), zone), 14, zone);
+    for (const l of locked) {
+      const k = buckets.keyOf(l.fixture.kickoffUtc);
+      if (!k) continue;
+      const bucket = byDay.get(k);
+      if (bucket) bucket.push(l); else byDay.set(k, [l]);
+    }
+    const built14 = [...byDay.entries()].sort(([a], [b]) => b.localeCompare(a)).flatMap(([day, ps]) => {
+      const cands: Candidate[] = ps.flatMap((x) => {
+        const H = x.fixture.homeTeam.shortName ?? x.fixture.homeTeam.name, A = x.fixture.awayTeam.shortName ?? x.fixture.awayTeam.name;
+        // The same exclusion as the live builder above, or this record would not describe it.
+        return allMarkets(x, H, A).filter((m) => !m.scannerOnly).map((m) => ({ matchId: x.fixtureId, league: leagueLabel(x.fixture.league), startMs: +x.fixture.kickoffUtc, match: `${H} v ${A}`,
+          label: m.label, market: m.key, group: m.group, p: m.p, odds: 1 / m.p, real: false, band: x.band }));
+      });
+      const [built] = buildSlips(cands, { target, maxLegs, minLegs, mode: "safe", band: "LOW", maxLegOdds: legCap, evenLegs }, 1);
+      if (!built) return [];
+      const res = (id: string) => { const f = ps.find((x) => x.fixtureId === id)!.fixture, r = f.results[0];
+        return { h: r.homeGoals, a: r.awayGoals, hc: f.homeCorners, ac: f.awayCorners, hs: f.homeShots, as: f.awayShots, hh: r.htHome, ha: r.htAway }; };
+      const legs = built.legs.map((l) => marketHit(l.market as MarketKey, res(l.matchId)));
+      if (legs.some((h) => h == null)) return [];
+      return [{ day, legs: built.legs.length, odds: built.odds, won: legs.every(Boolean), hits: legs.filter(Boolean).length }];
+    });
+    return built14;
+  }, ["builder-record", ...recordKey], { revalidate: 600, tags: ["builder-record"] })();
+  T.mark("record", `${record.length} day(s)`);
+  T.done();
   const won = record.filter((r) => r.won).length;
 
   return (

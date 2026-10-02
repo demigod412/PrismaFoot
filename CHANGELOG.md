@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.21.0 — stale statistics, and the builder's record cached
+
+Best value went **4.70s to 1.10s, then 0.67s warm**, and the measurement that got it there corrected my
+explanation of it.
+
+### It was not the pruning. It was ANALYZE.
+The quote prune deleted **504 rows of 166,637** — nothing. What took the odds lookup from **1928ms to
+248ms** was the `VACUUM (ANALYZE)` run beside it: `OddsQuote` had stale planner statistics, so Postgres
+estimated a sequential scan cheaper than the `(fixtureId, market, fetchedAt)` index the `DISTINCT ON` was
+written for. The index had been there all along. The planner simply did not know the shape of the table.
+
+Autovacuum does run ANALYZE, but on its own thresholds, and a table that only ever grows by insert can sit
+a long way out of date. Deleting rows is exactly the moment the estimates stop being true — so the prune
+job now runs `ANALYZE` on both tables straight afterwards, and `npm run prune --apply` does too. ANALYZE
+only, never `VACUUM FULL`: no exclusive lock, so it cannot interrupt a request.
+
+Keeping the quote prune anyway. It removed little today because the table is mostly recent fixtures, but
+nothing was bounding its growth and now something is.
+
+### The builder's record was most of its page
+The timings showed `search=842ms` but only `at=1338ms` of a 3.46s request — so roughly **two seconds came
+after every mark**: the 14-day record, which re-runs the whole combinatorial slip search **once per day of
+the window**. Fourteen searches to decorate the page beneath a single live one.
+
+Now cached for ten minutes on the slip settings and the viewing timezone, the same treatment the Top 50's
+record got in 0.20.0. It also finally reports its own phases to the end, rather than stopping at the search.
+
 ## 0.20.1 — prune the odds table too, and instrument the builder
 
 The 0.20.0 timings showed the cached record working exactly as intended — `record=1ms` on a repeat click,

@@ -119,3 +119,23 @@ export async function pruneQuotes(
   }
   return { candidates, deleted, days, dryRun };
 }
+
+
+/**
+ * Refresh planner statistics for the two tables this file deletes from.
+ *
+ * Worth more than the deleting, as it turned out. The odds lookup on the Top 50 was taking 1.9 seconds
+ * with a perfectly good index sitting unused, because Postgres had stale statistics for `OddsQuote` and
+ * was estimating a sequential scan to be cheaper. A single ANALYZE took the same query to 248ms. The index
+ * had been there all along; the planner simply did not know the shape of the table.
+ *
+ * Autovacuum does run ANALYZE, but on its own thresholds — and a table that grows steadily by insert
+ * without ever being deleted from can sit a long way out of date. Deleting a batch of rows is exactly the
+ * moment the estimates stop being true, so this runs straight after.
+ *
+ * ANALYZE only, never VACUUM FULL: it takes no exclusive lock and cannot interrupt a request.
+ */
+export async function refreshStats(db: PrismaClient): Promise<void> {
+  await db.$executeRawUnsafe('ANALYZE "Prediction"');
+  await db.$executeRawUnsafe('ANALYZE "OddsQuote"');
+}
