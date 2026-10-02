@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.19.0 — leagues carry their country, and filtering the Top 50 actually returns something
+
+### "Italy · Serie B", not "Serie B"
+There is a Serie B in Italy, Brazil and Romania, a League Two in England, and a dozen Premier Leagues.
+With 264 competitions in the list, picking one by name was guesswork. Every place a competition is named
+now shows its country first: the league selector, the fixture list, match rows, the match page and the
+legs in a slip. The country is dropped only where it would repeat the name, which is how international
+competitions arrive from the provider.
+
+### Filtering to a market returned nothing, and that was a bug
+The Top 50 held every market to a 55% floor, including when you had asked for one by name. But 0.55 is
+above the ceiling of a good number of markets — **Over 3.5, the draw, win by 2+, GG2+** — so filtering to
+any of them returned an empty page. It looked broken, and it effectively was: naming a market means "rank
+fixtures by this market", and a ranking is no use without entries.
+
+A named market is now ranked on its own terms. The mixed list is unchanged, and a *group* selector
+("Goals O/U") still holds 55%, because that is a browse rather than a request for one market. Every row
+shows its probability, so a 40% leader describes itself.
+
+This replaces the narrower rule from 0.17.1, which only exempted markets flagged rare-by-construction.
+That was too cautious and left the same empty page on markets the model prices perfectly well.
+
+### The Top 50 and the builder got slower the more leagues you added
+Both rebuild a daily track record on every request — seven days for the Top 50, fourteen for the builder —
+and the figures depend on the chosen market, so it cannot simply be cached. Two faults made it worse than
+it needed to be:
+
+- **A date format per fixture.** Grouping by day called into date-fns-tz for every settled fixture, and
+  that rebuilds timezone machinery on each call. Thousands of fixtures, thousands of rebuilds. The day
+  boundaries are now computed once and every fixture placed by comparison — exact, because the boundaries
+  still come from the zone's real rules.
+- **A quadratic grouping.** `byDay.set(k, [...byDay.get(k), f])` copies the whole bucket on every insert.
+  It pushes now.
+
+The record query is also bounded (`RECORD_LIMIT`, 1200, newest first) so its cost cannot keep growing with
+the league list, and the page reports its own phase timings — query, list, record — so the next slow page
+is measured rather than guessed at.
+
+### If GG2+ still shows nothing
+It is filled in as fixtures are re-priced. `npm run repredict` does the lot without touching the provider.
+
 ## 0.18.0 — the fix that took the sister app from 121 seconds to 1.9, applied here before it bites
 
 EdgeBoard shares this app's design and hit a wall: a page showing 323 rows took **121 seconds**. Postgres

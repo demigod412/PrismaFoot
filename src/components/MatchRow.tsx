@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { BoardFixture } from "@/lib/queries";
+import { leagueLabel } from "@/lib/leagues";
 import { fmtIn, fmtUtc } from "@/lib/time";
 import { tz } from "@/lib/tz";
 import { ProbBar } from "./ProbBar";
@@ -31,7 +32,7 @@ export async function MatchRow({ fx, pick }: { fx: BoardFixture; pick?: { label:
           <span className="truncate text-sm text-slate-300">{fx.awayTeam.shortName ?? fx.awayTeam.name}</span>
           {hasScore && <span className="num text-sm text-slate-100">{fx.awayGoals}</span>}
         </div>
-        <div className="mt-1 text-[11px] text-slate-500 md:hidden">{fx.league.name}</div>
+        <div className="mt-1 text-[11px] text-slate-500 md:hidden">{leagueLabel(fx.league)}</div>
       </div>
       <div className="hidden md:block">{p ? <ProbBar home={p.calHome} draw={p.calDraw} away={p.calAway} size="sm" /> : <span className="text-xs text-slate-500">No call yet</span>}</div>
       <div className="flex flex-col items-end gap-1">

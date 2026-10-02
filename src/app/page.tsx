@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getBoardWithMatrix, getLeagues } from "@/lib/queries";
+import { leagueLabel } from "@/lib/leagues";
 import { dayKeyIn, dayStart, fmtIn, isDayKey } from "@/lib/time";
 import { tz } from "@/lib/tz";
 import { prisma } from "@/lib/db";
@@ -121,7 +122,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ d
             ...leagues.map((l) => ({
               value: l.id,
               // Marked so a competition between seasons is obviously that, not obviously broken.
-              label: hasAhead.has(l.id) ? l.name : `${l.name} · ended`,
+              label: hasAhead.has(l.id) ? leagueLabel(l) : `${leagueLabel(l)} · ended`,
               group: l.country, href: `/${leagueHref(l.id)}`,
             }))]} />
         <FilterSelect label="Market" value={market} options={MARKETS.map((m) => ({ value: m.slug, label: m.label, group: m.group, href: `/${q({ market: m.slug })}` }))} />

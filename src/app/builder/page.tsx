@@ -5,10 +5,11 @@ import { BUILDER_LIMIT, getBoard } from "@/lib/queries";
 import { allMarkets, GROUP_LABEL, marketHit, type MarketKey } from "@/lib/markets";
 import { buildSlips, legHint, oneInN, SAFE_MAX_LEG_ODDS, type Candidate } from "@/lib/builder";
 import { getSetting } from "@/lib/secrets";
+import { leagueLabel } from "@/lib/leagues";
 import { trustFor, type MarketTrust, TRUST_SETTING } from "@/lib/trust";
 
 import { FIXTURE_WINDOW_DAYS } from "@/lib/window";
-import { dayKeyIn, dayStart, fmtIn } from "@/lib/time";
+import { dayBuckets, dayKeyIn, dayStart, fmtIn } from "@/lib/time";
 import { tz } from "@/lib/tz";
 import { BuilderResult } from "@/components/BuilderResult";
 import { FilterSelect } from "@/components/FilterSelect";
@@ -65,7 +66,7 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
     return allMarkets(p, H, A).filter((m) => !m.scannerOnly).map((m) => {
       const price = q.get(m.key);
       return {
-        matchId: f.id, league: f.league.name, startMs: +f.kickoffUtc, match: `${H} v ${A}`, label: m.label, market: m.key,
+        matchId: f.id, league: leagueLabel(f.league), startMs: +f.kickoffUtc, match: `${H} v ${A}`, label: m.label, market: m.key,
         group: m.group, p: m.p, odds: price && price > 1.01 ? price : 1 / m.p, real: !!price, band: p.band,
         trust: trustFor(trust, m.key),
         // Allowed in a slip, but marked: a leg that cannot be settled leaves the slip partly unscored.
@@ -85,12 +86,19 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
     include: { fixture: { include: { homeTeam: true, awayTeam: true, league: true, results: { orderBy: { settledAt: "desc" }, take: 1 } } } },
   });
   const byDay = new Map<string, typeof locked>();
-  for (const l of locked) { const k = dayKeyIn(l.fixture.kickoffUtc, zone); byDay.set(k, [...(byDay.get(k) ?? []), l]); }
+  // Boundaries once, and push rather than rebuild: see dayBuckets.
+  const buckets = dayBuckets(dayStart(dayKeyIn(now, zone), zone), 14, zone);
+  for (const l of locked) {
+    const k = buckets.keyOf(l.fixture.kickoffUtc);
+    if (!k) continue;
+    const bucket = byDay.get(k);
+    if (bucket) bucket.push(l); else byDay.set(k, [l]);
+  }
   const record = [...byDay.entries()].sort(([a], [b]) => b.localeCompare(a)).flatMap(([day, ps]) => {
     const cands: Candidate[] = ps.flatMap((x) => {
       const H = x.fixture.homeTeam.shortName ?? x.fixture.homeTeam.name, A = x.fixture.awayTeam.shortName ?? x.fixture.awayTeam.name;
       // The same exclusion as the live builder above, or this record would not describe it.
-      return allMarkets(x, H, A).filter((m) => !m.scannerOnly).map((m) => ({ matchId: x.fixtureId, league: x.fixture.league.name, startMs: +x.fixture.kickoffUtc, match: `${H} v ${A}`,
+      return allMarkets(x, H, A).filter((m) => !m.scannerOnly).map((m) => ({ matchId: x.fixtureId, league: leagueLabel(x.fixture.league), startMs: +x.fixture.kickoffUtc, match: `${H} v ${A}`,
         label: m.label, market: m.key, group: m.group, p: m.p, odds: 1 / m.p, real: false, band: x.band }));
     });
     const [built] = buildSlips(cands, { target, maxLegs, minLegs, mode: "safe", band: "LOW", maxLegOdds: legCap, evenLegs }, 1);

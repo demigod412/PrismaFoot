@@ -7,6 +7,7 @@ import { tz } from "@/lib/tz";
 import { ProbBar } from "@/components/ProbBar";
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
 import { allMarkets, marketHit, GROUP_LABEL, type MarketGroup } from "@/lib/markets";
+import { leagueLabel } from "@/lib/leagues";
 import { TOP_N } from "@/lib/top";
 import { bestTip } from "@/lib/top";
 import { AddToSlip } from "@/components/AddToSlip";
@@ -56,7 +57,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
   const tip = p ? bestTip(p, fx.homeTeam.shortName ?? fx.homeTeam.name, fx.awayTeam.shortName ?? fx.awayTeam.name) : null;
   return (
     <article>
-      <Link href={`/league/${fx.leagueId}`} className="focus-ring text-xs text-slate-400 hover:text-slate-200">{fx.league.name}{fx.round ? ` · ${fx.round}` : ""}</Link>
+      <Link href={`/league/${fx.leagueId}`} className="focus-ring text-xs text-slate-400 hover:text-slate-200">{leagueLabel(fx.league)}{fx.round ? ` · ${fx.round}` : ""}</Link>
 
       {/* The one loud moment: the strongest tip (no correct-score call). */}
       <header className="relative mt-3 overflow-hidden rounded-[20px] border hairline bg-[radial-gradient(120%_90%_at_50%_0%,#13203a_0%,#0B1220_55%,#070B14_100%)] px-4 pb-6 pt-5 md:px-8 md:pt-7">

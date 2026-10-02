@@ -46,3 +46,31 @@ export function isDayKey(s: string | undefined): s is string {
 export function dayStart(key: string, zone: string): Date {
   return fromZonedTime(`${key}T00:00:00`, zone);
 }
+
+/**
+ * Bucket timestamps into calendar days of `zone`, without formatting each one.
+ *
+ * `dayKeyIn` calls into date-fns-tz, which rebuilds timezone machinery per call. That is fine for the
+ * handful of dates on a page and ruinous for a few thousand: the Top 50 and the builder both grouped
+ * every settled fixture in a multi-day window that way, on every single request.
+ *
+ * So the day boundaries are computed once - `days` of them, two formatting calls each - and every
+ * timestamp is then placed by comparison. Exact, because the boundaries come from the zone's real rules
+ * rather than an assumed fixed offset.
+ */
+export function dayBuckets(endExclusive: Date, days: number, zone: string) {
+  const out: { key: string; start: number; end: number }[] = [];
+  for (let i = 1; i <= days; i++) {
+    const key = dayKeyIn(new Date(endExclusive.getTime() - i * 86_400_000), zone);
+    const start = dayStart(key, zone).getTime();
+    out.push({ key, start, end: start + 86_400_000 });
+  }
+  return {
+    /** The day key for a timestamp, or null when it falls outside the window. */
+    keyOf(at: Date): string | null {
+      const t = at.getTime();
+      for (const d of out) if (t >= d.start && t < d.end) return d.key;
+      return null;
+    },
+  };
+}

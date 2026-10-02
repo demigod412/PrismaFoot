@@ -4,7 +4,7 @@ import {
   allMarkets, GROUP_LABEL, lineKey, MARKET_OPTIONS, parseSelector, selectorMatches, selectorLabel,
   type MarketGroup,
 } from "@/lib/markets";
-import { tipsFor, MIN_P } from "@/lib/top";
+import { tipsFor, MIN_P, MIN_P_NAMED } from "@/lib/top";
 import { marketHit } from "@/lib/markets";
 import { apiFootballKey, quoteFor } from "@/lib/odds";
 import { noRunShare, noThreeInARow, noWinByTwo, notBothHalvesOver15, scoreMatrix, winByAtLeast } from "@/lib/model/dixonColes";
@@ -110,8 +110,27 @@ describe("filtering the top list by one market", () => {
     expect(mixed.every((t) => t.main || t.strong)).toBe(true);
   });
 
-  it("still applies the probability floor inside a single market", () => {
-    expect(tipsFor(pred({ calOver25: 0.4 } as Partial<Prediction>), "Home", "Away", "k:over25")).toEqual([]);
+  /*
+   * This used to assert the opposite: that MIN_P applied inside a named market too, so a 40% Over 2.5
+   * returned nothing. The reasoning was that a filter showing a weak call becomes a recommendation.
+   *
+   * In use it failed the other way round. Filtering the Top 50 to Over 3.5, the draw, win-by-2 or GG2+ —
+   * all markets the model prices perfectly well, none of which reaches 0.55 often or at all — returned an
+   * empty page, which reads as broken rather than selective. Naming a market means "rank fixtures by this
+   * market", and a ranking is only useful if it has entries. Every row shows its probability, so a 40%
+   * leader describes itself.
+   */
+  it("ranks a named market below MIN_P, but keeps MIN_P for the mixed list and for a group", () => {
+    const weak = pred({ calOver25: 0.4 } as Partial<Prediction>);
+    const named = tipsFor(weak, "Home", "Away", "k:over25");
+    expect(named.map((t) => t.key)).toEqual(["over25"]);
+    expect(named[0].p).toBeCloseTo(0.4, 12);
+    // The mixed list is unchanged: 0.4 is still below MIN_P and still excluded there.
+    expect(tipsFor(weak, "Home", "Away").some((t) => t.key === "over25")).toBe(false);
+    // So is a group selector — "Goals O/U" is a browse, not a request for one market.
+    expect(tipsFor(weak, "Home", "Away", "goals").some((t) => t.key === "over25")).toBe(false);
+    // And a named market below even the relaxed floor is still dropped.
+    expect(tipsFor(pred({ calOver25: MIN_P_NAMED / 2 } as Partial<Prediction>), "Home", "Away", "k:over25")).toEqual([]);
   });
 });
 

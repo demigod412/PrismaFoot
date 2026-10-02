@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { dataMode } from "@/lib/mode";
-import { attachLatestPredictions, fixtureBaseInclude, HEAVY_JSON } from "@/lib/queries";
+import { attachLatestPredictions, fixtureBaseInclude, HEAVY_JSON, RECORD_LIMIT } from "@/lib/queries";
 import { phases } from "@/lib/timing";
+import { leagueLabel } from "@/lib/leagues";
 import { selectTop, tipHit, tipsFor, TOP_N, WINDOWS, CAPS, type Tip } from "@/lib/top";
 import { allMarkets, GROUP_LABEL, MARKET_OPTIONS, marketHit, parseSelector, selectorLabel, selectorMatches, type MarketGroup, type MarketKey } from "@/lib/markets";
 import { flatStakeRoi, selectTopValue, valueTips, VALUE, type ValueTip, VALUE_CEILINGS } from "@/lib/value";
 import { quoteFor, type QuoteMap } from "@/lib/odds";
-import { dayKeyIn, dayStart, fmtIn, fmtUtc } from "@/lib/time";
+import { dayBuckets, dayKeyIn, dayStart, fmtIn, fmtUtc } from "@/lib/time";
 import { tz } from "@/lib/tz";
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
 import { FilterSelect } from "@/components/FilterSelect";
@@ -86,6 +87,7 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
     })).map(({ item, tip }) => ({ f: item, t: tip }));
   }
   const shown = list === "likely" ? likely.length : value.length;
+  T.mark("list", `${shown} shown${sel ? ` for ${sel}` : ""}`);
   /*
    * Corners and shots need the model's stats history, which only the competitions inside the stats
    * budget get. Selecting them on a window of fixtures that have none produces an empty list, and
@@ -125,17 +127,36 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
 
   // ---------- track record: LOCKED calls only (the call as it stood 15 minutes before kickoff) ----------
   const since = new Date(todayStart.getTime() - 7 * DAY);
+  /*
+   * The seven-day record, and the single most expensive thing on this page.
+   *
+   * It is rebuilt on every request, for every filter, because the figures depend on the selected market
+   * and list. With 264 competitions that is thousands of settled fixtures, each one then run through the
+   * whole market catalogue. Bounded in kickoff order so the cost cannot grow without limit as the league
+   * list does - RECORD_LIMIT trims the oldest, which is the least interesting end of a daily table.
+   */
   const past = await prisma.fixture.findMany({
     where: { provider, status: "FINISHED", homeGoals: { not: null }, kickoffUtc: { gte: since, lt: todayStart }, predictions: { some: { lockedAt: { not: null } } }, ...(focus ? { league: { focusGroup: focus } } : {}) },
     include: { homeTeam: true, awayTeam: true, predictions: { where: { lockedAt: { not: null } }, take: 1, omit: HEAVY_JSON } },
+    orderBy: { kickoffUtc: "desc" },
+    take: RECORD_LIMIT,
   });
+  T.mark("record query", `${past.length} settled`);
   const pastQuotes = list === "value" ? quoteMaps(
     await prisma.oddsQuote.findMany({ where: { fixtureId: { in: past.map((f) => f.id) } }, orderBy: { fetchedAt: "desc" } }),
     new Map(past.map((f) => [f.id, f.predictions[0].lockedAt!])),
   ) : new Map<string, QuoteMap>();
   type Day = { day: string; n: number; hits: number; avgP: number; profit?: number };
+  // Boundaries computed once instead of formatting every fixture's date, and pushed rather than
+  // rebuilt - the spread form copies the whole bucket per insert, which is quadratic for no reason.
+  const buckets = dayBuckets(todayStart, 7, zone);
   const byDay = new Map<string, (typeof past)[number][]>();
-  past.forEach((f) => { const k = dayKeyIn(f.kickoffUtc, zone); byDay.set(k, [...(byDay.get(k) ?? []), f]); });
+  for (const f of past) {
+    const k = buckets.keyOf(f.kickoffUtc);
+    if (!k) continue;
+    const bucket = byDay.get(k);
+    if (bucket) bucket.push(f); else byDay.set(k, [f]);
+  }
   const record: Day[] = [...byDay.entries()].sort(([a], [b]) => b.localeCompare(a)).map(([day, fs]) => {
     const res = (f: (typeof fs)[number]) => ({ h: f.homeGoals!, a: f.awayGoals!, hc: f.homeCorners, ac: f.awayCorners, hs: f.homeShots, as: f.awayShots, hh: f.htHome, ha: f.htAway });
     const lines = (f: (typeof fs)[number]) => ({ corners: f.predictions[0].cornersLine, shots: f.predictions[0].shotsLine });
@@ -149,6 +170,8 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
     const roi = flatStakeRoi(picks.map((x) => ({ odds: x.tip.odds, hit: !!x.hit })));
     return { day, n: roi.n, hits: roi.hits, avgP: picks.reduce((s, x) => s + x.tip.p, 0) / (picks.length || 1), profit: roi.profit };
   }).filter((r) => r.n);
+  T.mark("record", `${record.length} day(s)`);
+  T.done();
   const tot = record.reduce((s, r) => ({ n: s.n + r.n, h: s.h + r.hits, p: s.p + r.avgP * r.n, profit: s.profit + (r.profit ?? 0) }), { n: 0, h: 0, p: 0, profit: 0 });
 
   const Row = ({ f, i, label, groupName, p, right }: { f: (typeof fixtures)[number]; i: number; label: string; groupName: string; p: number; right: React.ReactNode }) => (
@@ -160,7 +183,7 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
         </span>
         <span className="min-w-0">
           <span className="block truncate text-sm text-slate-100">{names(f).join(" v ")}</span>
-          <span className="block truncate text-[11px] text-slate-500"><span className="num md:hidden">{fmtIn(f.kickoffUtc, zone, "EEE HH:mm")} · </span>{f.league.name}</span>
+          <span className="block truncate text-[11px] text-slate-500"><span className="num md:hidden">{fmtIn(f.kickoffUtc, zone, "EEE HH:mm")} · </span>{leagueLabel(f.league)}</span>
           <span className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-edge/40 bg-edge/10 px-1.5 py-0.5 text-xs text-edge"><span className="text-[10px] text-edge/70">{groupName}</span>{label}</span>
         </span>
         <span className="flex flex-col items-end gap-1">
@@ -225,7 +248,7 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
             : !statsAvailable
             ? `${selGroup === "corners" ? "Corner" : "Shot"} lines are modelled from each team's match-by-match ${selGroup === "corners" ? "corner" : "shot"} history, and that history is only collected for the competitions inside the statistics budget. No fixture in this window has it, so there is nothing to rank — this is missing data, not a shortage of qualifying tips.`
             : nextUp && nextUp.kickoffUtc.getTime() > end.getTime()
-              ? `No matches are scheduled in this window. The next one is ${nextUp.league.name} on ${fmtIn(nextUp.kickoffUtc, zone, "EEE d MMM")}.`
+              ? `No matches are scheduled in this window. The next one is ${leagueLabel(nextUp.league)} on ${fmtIn(nextUp.kickoffUtc, zone, "EEE d MMM")}.`
               : "No upcoming match in this window qualifies yet. Try a longer window."}
           action={days < 7 ? { href: href({ days: Math.min(7, days + 1) }), label: `Show ${windowLabel(Math.min(7, days + 1)).toLowerCase()}` } : undefined} />
       ) : (

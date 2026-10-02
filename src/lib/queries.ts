@@ -147,6 +147,13 @@ export async function getBoardWithMatrix(opts: BoardOpts): Promise<BoardFixtureW
 
 /** Fixtures a list query can carry at once. Kickoff order, so the cut falls on the furthest away. */
 export const BOARD_LIMIT = Number(process.env.BOARD_LIMIT) || 2500;
+/**
+ * Settled fixtures behind the Top 50's seven-day record and the builder's fourteen-day one.
+ *
+ * Those tables are rebuilt per request because they depend on the chosen market, and each fixture is run
+ * through the whole market catalogue to score it. Newest first, so the trim falls on the oldest day.
+ */
+export const RECORD_LIMIT = Number(process.env.RECORD_LIMIT) || 1200;
 /** Candidates handed to the blend builder, which serialises every one of them into the HTML. */
 export const BLEND_LIMIT = Number(process.env.BLEND_LIMIT) || 250;
 /*

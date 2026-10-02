@@ -13,16 +13,17 @@ import { allMarkets, marketHit, selectorKey, selectorMatches, type MarketKey, ty
 export const TOP_N = 50;
 export const MIN_P = 0.55;
 /*
- * The floor for a market that is rare BY CONSTRUCTION, when it has been asked for by name.
+ * The floor once a single market has been asked for by name.
  *
- * MIN_P is deliberate everywhere else, including inside a named market: asking for Over 2.5 and being
- * shown a 40% one is how a filter turns into a recommendation, and there is a test holding that line.
+ * MIN_P governs the MIXED list, where a 40% call sitting beside an 80% one reads as comparable. Naming a
+ * market inverts that: the request is "rank fixtures by this market", and 0.55 is above the ceiling of a
+ * good number of them — Over 3.5, the draw, win-by-2, GG2+. Applying it there returns an empty page,
+ * which reads as broken rather than selective, and that is exactly what it did.
  *
- * But a market whose ceiling sits below MIN_P cannot be ranked at all under it — the page comes back
- * empty and looks broken rather than selective. GG2+ tops out near a fifth of fixtures even in the most
- * open game in the model. So the exemption is tied to `scannerOnly`, which is exactly the set of markets
- * that are rare by their definition rather than by the fixture, and it applies only when the market has
- * been named. Nothing reaches a mixed list this way.
+ * This used to apply only to markets flagged `scannerOnly`, on the reasoning that a filter showing a
+ * weak call becomes a recommendation. In practice the opposite happened: filtering to a market the model
+ * prices perfectly well returned nothing at all. The probability is displayed on every row, so a 35%
+ * leader is self-describing — and a list sorted by a market is only useful if it has entries.
  */
 export const MIN_P_NAMED = 0.05;
 export const WINDOWS = [1, 2, 3, 4, 5, 6, 7] as const;
@@ -74,7 +75,7 @@ export function tipsFor(p: MarketSource, home: string, away: string, sel?: Marke
   return allMarkets(p, home, away)
     .filter((m) => (!EXCLUDED.includes(m.key) || (named === m.key && !m.unverifiable))
       && (!m.alt || m.strong || asksForLines)
-      && selectorMatches(sel, m) && m.p >= (named === m.key && m.scannerOnly ? MIN_P_NAMED : MIN_P))
+      && selectorMatches(sel, m) && m.p >= (named === m.key ? MIN_P_NAMED : MIN_P))
     .map((m) => ({ ...m, strength: strengthOf(m.p, p.confidence) }))
     .sort((a, b) => b.strength - a.strength);
 }

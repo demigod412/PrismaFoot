@@ -242,3 +242,18 @@ export const POOL_SETTINGS: Record<string, { halfLifeDays: number; historyDays: 
   // European club competitions: every club rated on domestic + European results together
   europe: { halfLifeDays: 90, historyDays: 450, seasons: 2 },
 };
+
+/**
+ * "Italy - Serie B", not "Serie B".
+ *
+ * The name on its own is ambiguous and sometimes useless: there is a Serie B in Italy, Brazil and
+ * Romania, a League Two in England, and a dozen Premier Leagues. With 264 competitions in the list,
+ * picking the right one by name alone is guesswork.
+ *
+ * The country is dropped only when it would repeat the name, which is how international competitions
+ * come through from the provider ("World - World").
+ */
+export const leagueLabel = (l: { name: string; country?: string | null }) =>
+  l.country && l.country.trim() && l.country.trim().toLowerCase() !== l.name.trim().toLowerCase()
+    ? `${l.country} \u00b7 ${l.name}`
+    : l.name;
