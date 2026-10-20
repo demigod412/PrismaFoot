@@ -1,13 +1,17 @@
 /**
  * Curated league allowlist per provider.
  *  focus   → optional scanner / Top 50 filter
- *  pool    → competitions rated together by team id (national teams; European club cups)
- *  feeds   → domestic league whose results also feed a pool (club strength across leagues); predicted with its own fit
+ *  pool    → competitions rated together by team id (national teams; European club cups; English cups)
+ *  feeds   → domestic league whose results also feed one or more pools (club strength across leagues); predicted with its own fit
  *  neutral → finals tournaments, where most matches are at neutral venues
+ *  neutralRounds → rounds of an otherwise home-and-away cup played at a neutral ground (finals; FA Cup semis at Wembley)
  *  tier    → 1 = top flight, 2 = second tier (used for promoted / relegated team priors)
  * IDs that don't exist on your plan are simply skipped. Check IDs with the provider's /leagues or /competitions endpoint.
  */
-export interface LeagueEntry { id?: string; match?: { country: string; name: RegExp }; focus: string | null; pool?: string; feeds?: string; neutral?: boolean; tier?: number }
+export interface LeagueEntry { id?: string; match?: { country: string; name: RegExp }; focus: string | null; pool?: string; feeds?: string | string[]; neutral?: boolean; neutralRounds?: RegExp; tier?: number }
+
+/** Pools an entry feeds, as stored in League.feedsPool (comma-separated, so no schema change). */
+export const feedsOf = (e: LeagueEntry): string[] => (e.feeds == null ? [] : Array.isArray(e.feeds) ? e.feeds : [e.feeds]);
 
 const norm = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z]/g, "");
 /** Strip accents from a league name too, so /Urvalsdeild/ matches the provider's "Úrvalsdeild". */
@@ -43,6 +47,8 @@ export function entryFor(allow: LeagueEntry[], l: { externalId: string; name: st
  */
 const EU = (country: string, name: RegExp, focus: string | null = "europe-other", extra: Partial<LeagueEntry> = {}): LeagueEntry =>
   ({ match: { country, name }, focus, ...((extra.tier ?? 1) === 1 ? { feeds: "europe" } : {}), ...extra });
+const FINAL = /^final$/i;
+const FA_CUP_WEMBLEY = /^(semi-?finals?|final)$/i;
 const WORLD = (country: string, name: RegExp, focus: string | null, extra: Partial<LeagueEntry> = {}): LeagueEntry => ({ match: { country, name }, focus, ...extra });
 export const MORE_API_FOOTBALL: LeagueEntry[] = [
   /*
@@ -58,7 +64,8 @@ export const MORE_API_FOOTBALL: LeagueEntry[] = [
    */
 
   // ─── England ───
-  EU("England", /^National League$/i, "england", { tier: 5 }),
+  // Feeds the English cup pool, so FA Cup ties against fifth-tier clubs are priced from their league form.
+  EU("England", /^National League$/i, "england", { tier: 5, feeds: "england" }),
 
   // ─── Big five: third tiers ───
   EU("Italy", /^Serie C/i, null, { tier: 3 }),          // three girones
@@ -184,11 +191,14 @@ export const MORE_API_FOOTBALL: LeagueEntry[] = [
 
 export const LEAGUE_ALLOWLIST: Record<string, LeagueEntry[]> = {
   "football-data": [
-    { id: "PL", focus: "england", feeds: "europe" }, { id: "ELC", focus: "england", feeds: "europe", tier: 2 },
+    { id: "PL", focus: "england", feeds: ["europe", "england"] }, { id: "ELC", focus: "england", feeds: ["europe", "england"], tier: 2 },
     { id: "PD", focus: "europe-strong", feeds: "europe" }, { id: "SA", focus: "europe-strong", feeds: "europe" }, { id: "BL1", focus: "europe-strong", feeds: "europe" },
     { id: "FL1", focus: "europe-strong", feeds: "europe" }, { id: "DED", focus: null, feeds: "europe" }, { id: "PPL", focus: null, feeds: "europe" },
     { id: "BSA", focus: "americas" }, // Brazil Série A (on the free plan)
-    { id: "CL", focus: "europe-strong", pool: "europe" }, // rated with every club's domestic results too
+    { id: "CL", focus: "europe-strong", pool: "europe", neutralRounds: FINAL }, // rated with every club's domestic results too
+    // Paid football-data tiers only; on the free plan these ids are simply not listed and are skipped.
+    { id: "EL", focus: "europe-strong", pool: "europe", neutralRounds: FINAL },
+    { id: "FAC", focus: "england", pool: "england", neutralRounds: FA_CUP_WEMBLEY },
     // National teams (free tier lists these only while the tournament is on)
     { id: "WC", focus: "international", pool: "intl", neutral: true }, { id: "EC", focus: "international", pool: "intl", neutral: true },
   ],
@@ -197,15 +207,19 @@ export const LEAGUE_ALLOWLIST: Record<string, LeagueEntry[]> = {
     // missing: the list was built in 0.7.1, extended in 0.9.0 and never actually read, so none of
     // it ever synced and only the explicit ids below did.
     ...MORE_API_FOOTBALL,
-    { id: "39", focus: "england", feeds: "europe" }, { id: "40", focus: "england", feeds: "europe", tier: 2 },
+    { id: "39", focus: "england", feeds: ["europe", "england"] }, { id: "40", focus: "england", feeds: ["europe", "england"], tier: 2 },
     { id: "140", focus: "europe-strong", feeds: "europe" }, { id: "135", focus: "europe-strong", feeds: "europe" }, { id: "78", focus: "europe-strong", feeds: "europe" },
     { id: "61", focus: "europe-strong", feeds: "europe" }, { id: "88", focus: null, feeds: "europe" }, { id: "94", focus: null, feeds: "europe" },
-    { id: "2", focus: "europe-strong", pool: "europe" },   // Champions League
-    { id: "3", focus: "europe-strong", pool: "europe" },   // Europa League
-    { id: "848", focus: "europe-strong", pool: "europe" }, // Conference League
+    { id: "2", focus: "europe-strong", pool: "europe", neutralRounds: FINAL },   // Champions League
+    { id: "3", focus: "europe-strong", pool: "europe", neutralRounds: FINAL },   // Europa League
+    { id: "848", focus: "europe-strong", pool: "europe", neutralRounds: FINAL }, // Conference League
+    // English cups: rated together with the whole pyramid (Premier League down to the National League),
+    // so a League Two side drawn against a Premier League club is priced on one scale, not two.
+    { id: "45", focus: "england", pool: "england", neutralRounds: FA_CUP_WEMBLEY }, // FA Cup (semis and final at Wembley)
+    { id: "48", focus: "england", pool: "england", neutralRounds: FINAL },          // EFL Cup (semis are two-legged, at home)
     { id: "399", focus: "africa" }, // Nigeria NPFL
     // More top flights and second tiers (used when your API-Football plan includes them)
-    { id: "41", focus: "england", tier: 3 }, { id: "42", focus: "england", tier: 4 },            // League One, League Two
+    { id: "41", focus: "england", feeds: "england", tier: 3 }, { id: "42", focus: "england", feeds: "england", tier: 4 }, // League One, League Two
     { id: "141", focus: null, feeds: "europe", tier: 2 }, { id: "136", focus: null, feeds: "europe", tier: 2 }, // LaLiga 2, Serie B
     { id: "79", focus: null, feeds: "europe", tier: 2 }, { id: "62", focus: null, feeds: "europe", tier: 2 },   // 2. Bundesliga, Ligue 2
     { id: "179", focus: "europe-other", feeds: "europe" }, { id: "144", focus: "europe-other", feeds: "europe" }, // Scotland, Belgium
@@ -231,8 +245,14 @@ export const LEAGUE_ALLOWLIST: Record<string, LeagueEntry[]> = {
     { id: "9", focus: "international", pool: "intl", neutral: true }, // Copa America
   ],
   sportmonks: [
-    { id: "8", focus: "england" }, { id: "564", focus: "europe-strong" }, { id: "384", focus: "europe-strong" },
-    { id: "82", focus: "europe-strong" }, { id: "301", focus: "europe-strong" },
+    { id: "8", focus: "england", feeds: ["europe", "england"] }, { id: "9", focus: "england", feeds: ["europe", "england"], tier: 2 },
+    { id: "564", focus: "europe-strong", feeds: "europe" }, { id: "384", focus: "europe-strong", feeds: "europe" },
+    { id: "82", focus: "europe-strong", feeds: "europe" }, { id: "301", focus: "europe-strong", feeds: "europe" },
+    { id: "2", focus: "europe-strong", pool: "europe", neutralRounds: FINAL },    // Champions League
+    { id: "5", focus: "europe-strong", pool: "europe", neutralRounds: FINAL },    // Europa League
+    { id: "2286", focus: "europe-strong", pool: "europe", neutralRounds: FINAL }, // Conference League
+    { id: "24", focus: "england", pool: "england", neutralRounds: FA_CUP_WEMBLEY }, // FA Cup
+    { id: "27", focus: "england", pool: "england", neutralRounds: FINAL },          // EFL Cup (Carabao Cup)
   ],
 };
 
@@ -241,7 +261,19 @@ export const POOL_SETTINGS: Record<string, { halfLifeDays: number; historyDays: 
   intl: { halfLifeDays: 365, historyDays: 1100, seasons: 3 },
   // European club competitions: every club rated on domestic + European results together
   europe: { halfLifeDays: 90, historyDays: 450, seasons: 2 },
+  // English cups: the Premier League, EFL and National League rated together (cup ties and promoted
+  // and relegated clubs are what tie the tiers to one scale)
+  england: { halfLifeDays: 90, historyDays: 450, seasons: 2 },
 };
+
+const PROVIDER_KEY: Record<string, string> = { FOOTBALL_DATA: "football-data", API_FOOTBALL: "api-football", SPORTMONKS: "sportmonks" };
+
+/** True when this round of a cup is played at a neutral ground (finals; FA Cup semi-finals at Wembley). */
+export function neutralRound(league: { provider: string; externalId: string }, round?: string | null): boolean {
+  if (!round) return false;
+  const e = (LEAGUE_ALLOWLIST[PROVIDER_KEY[league.provider] ?? ""] ?? []).find((a) => a.id === league.externalId);
+  return !!e?.neutralRounds?.test(round.trim());
+}
 
 /**
  * "Italy - Serie B", not "Serie B".

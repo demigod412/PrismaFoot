@@ -1,5 +1,64 @@
 # Changelog
 
+## 0.23.0 — the European cups sync again, the FA Cup and EFL Cup arrive, and cup ties are priced on one scale
+
+### The Champions League, Europa League and Conference League had not synced since 0.14.1
+They were in the allowlist all along. The bounded run sorted the **whole** queue with "pooled competitions
+last" as its first key and only then took the first `MAX_LEAGUES_PER_SYNC`. With ~250 domestic
+competitions ahead of them and a cap of 60, every pooled competition (the three European cups and every
+national-team competition) sat permanently past the cut. Nothing errored; they just never came round.
+
+The run now picks its competitions by urgency and staleness first and moves the pooled ones to the back
+**of the chosen set**, so they still read that run's domestic results. The ordering lives in
+`src/lib/syncOrder.ts` and a test builds the exact failing case (250 domestic leagues, a never-synced
+Champions League) so it cannot quietly come back.
+
+### FA Cup and EFL Cup
+Added on API-Football (ids 45 and 48), Sportmonks (24, 27) and football-data's paid tiers (`FAC`). They
+sit in a new **`england` rating pool**, fed by the Premier League, Championship, League One, League Two
+and the National League, so a League Two side drawn against a Premier League club is rated on one scale
+rather than two. The Premier League and Championship still feed the European pool too: `feeds` now takes
+a list, stored comma-separated in `League.feedsPool`, so there is no schema change.
+
+Sportmonks also gains the three European cups and the Championship, with the pools the API-Football side
+already had. football-data gains the Europa League (`EL`) on paid tiers; ids a plan does not list are
+skipped as before.
+
+### Finals at neutral grounds
+Champions League, Europa League, Conference League and EFL Cup finals, and FA Cup semi-finals and final
+(Wembley), are priced with no home advantage. Two-legged semi-finals stay at home.
+
+### Model: pooled fits shrink each club toward its own league, not the pool average
+A pooled fit shrank every club toward the average of the whole pool. Within one league that is right;
+across leagues it flattered every thin-sample club from a weaker league, and a non-league FA Cup side with
+no domestic data was rated exactly average — roughly Championship strength.
+
+`fitPool` fits twice. Pass one gives each league's typical attack and defence; pass two shrinks every club
+toward its own league's level, and a club seen only in the cup toward one step below the weakest league
+(with a heavier prior, and the `prior_*` confidence penalty). Clubs with a season of data barely move;
+domestic league fits are untouched.
+
+On a simulated pyramid (`npx tsx scripts/backtest-pool.ts`, 1,152 walk-forward cup ties over 12 seeds):
+
+| | Brier | Log loss | Hit rate |
+| --- | --- | --- | --- |
+| single fit (before) | 0.6136 | 1.0246 | 49.9% |
+| `fitPool` | **0.5879** | **0.9886** | **54.7%** |
+
+On the 418 ties involving a non-league side the Brier score goes 0.608 → 0.556. These are simulated
+results; the Accuracy page is where the real effect shows.
+
+### The pooled fit is computed once per run
+All three European cups read the same domestic and European history at the same `now`, so they were
+each fitting the largest pool separately. It is now fitted once per run and cached (one entry, cleared
+when the run ends), which matters because these competitions are back in the sync.
+
+### Odds for the cups
+Pooled competitions never counted as major, so the club cups never got bookmaker odds and never
+appeared in Best value. They now get their own small odds budget (`MAX_CUP_ODDS_CALLS`, default 10),
+kept separate because they run last and would otherwise find the league budget already spent. National
+teams are unchanged.
+
 ## 0.22.0 — every market on the fixtures board, and Over 3.5 gets a scanner
 
 ### The board offered twenty of twenty-eight scanners

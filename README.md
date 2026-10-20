@@ -40,6 +40,7 @@ src/lib/demo/                     deterministic demo generator
 src/app/                          App Router pages, manifest.ts, sw.ts (Serwist)
 tests/                            vitest — engine invariants
 scripts/backtest-synthetic.ts     walk-forward Brier/log loss vs baselines on simulated leagues
+scripts/backtest-pool.ts          pooled (cup) fit vs single fit on a simulated pyramid
 ```
 
 ## Phase status

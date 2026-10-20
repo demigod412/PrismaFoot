@@ -1,4 +1,4 @@
-import { DEFAULT_RHO, HALF_LIFE_DAYS, RHO_PRIOR_MATCHES, SHRINK_PSEUDO_MATCHES } from "./constants";
+import { DEFAULT_RHO, HALF_LIFE_DAYS, OUTSIDER_PRIOR_WEIGHT, OUTSIDER_STEP, RHO_PRIOR_MATCHES, SHRINK_PSEUDO_MATCHES } from "./constants";
 import { clampRho, dcLogLik } from "./dixonColes";
 
 export type InputKind = "xg" | "shots" | "goals";
@@ -171,4 +171,50 @@ function mean(xs: number[]) { return xs.length ? xs.reduce((s, x) => s + x, 0) /
 /** Rating for a team with no history: league average with zero sample. */
 export function priorRating(fit: LeagueFit): TeamRating {
   return { attack: fit.base, defence: 1, sampleWeight: 0, matches: 0 };
+}
+
+/** The domestic league a pooled team belongs to (its most recent one), used to shrink it toward that league's level. */
+export interface PoolMember { group: string; tier: number }
+
+/**
+ * Pooled fit for cups (Champions League, FA Cup…): every club rated on domestic + cup results together.
+ *
+ * A single fit shrinks every club toward the POOL average. That is the right target inside one league but
+ * the wrong one across leagues: a thin-sample League Two side, or a CL qualifier from a small league, was
+ * pulled toward the level of an average club across the whole pool — Championship strength in England,
+ * mid-table Bundesliga in Europe — and a non-league side in the FA Cup, with no domestic data at all, was
+ * rated exactly average.
+ *
+ * Two passes instead (empirical Bayes):
+ *  1. plain fit; from it, each league's typical attack/defence (geometric mean over its clubs). Those means
+ *     are well determined — dozens of clubs each, tied together by every cup tie and every promoted side.
+ *  2. refit with each club shrunk toward ITS OWN league's level, and a club seen only in the cup
+ *     ("outsider") shrunk toward one step below the weakest league, with a heavier prior.
+ * Clubs with a full season of data barely move; it is the thin and unknown ones this corrects.
+ */
+export function fitPool(matches: HistMatch[], asOf: Date, opts: { halfLifeDays?: number; members: Map<string, PoolMember>; iterations?: number }): { fit: LeagueFit; outsiders: Set<string> } {
+  const first = fitLeague(matches, asOf, { halfLifeDays: opts.halfLifeDays, iterations: opts.iterations });
+  const outsiders = new Set<string>();
+  if (!opts.members.size) return { fit: first, outsiders };
+  const acc = new Map<string, { la: number; ld: number; n: number; tier: number }>();
+  first.teams.forEach((r, id) => {
+    const m = opts.members.get(id);
+    if (!m || r.matches < 6) return;
+    const g = acc.get(m.group) ?? { la: 0, ld: 0, n: 0, tier: m.tier };
+    g.la += Math.log(r.attack / first.base); g.ld += Math.log(r.defence); g.n++;
+    acc.set(m.group, g);
+  });
+  const level = new Map<string, { a: number; d: number; tier: number }>();
+  acc.forEach((g, k) => { if (g.n >= 3) level.set(k, { a: Math.exp(g.la / g.n), d: Math.exp(g.ld / g.n), tier: g.tier }); });
+  if (!level.size) return { fit: first, outsiders };
+  // Weakest league: lowest tier first, then the lowest attack/defence ratio within it.
+  const weakest = [...level.values()].sort((x, y) => y.tier - x.tier || x.a / x.d - y.a / y.d)[0];
+  const priors = new Map<string, TeamPrior>();
+  first.teams.forEach((_, id) => {
+    const m = opts.members.get(id);
+    const lv = m ? level.get(m.group) : undefined;
+    if (lv) priors.set(id, { a: lv.a, d: lv.d, weight: SHRINK_PSEUDO_MATCHES });
+    else if (!m) { outsiders.add(id); priors.set(id, { a: weakest.a * OUTSIDER_STEP.a, d: weakest.d * OUTSIDER_STEP.d, weight: OUTSIDER_PRIOR_WEIGHT }); }
+  });
+  return { fit: fitLeague(matches, asOf, { halfLifeDays: opts.halfLifeDays, iterations: opts.iterations, priors }), outsiders };
 }

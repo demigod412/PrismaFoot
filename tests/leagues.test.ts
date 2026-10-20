@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { entryFor, LEAGUE_ALLOWLIST, MORE_API_FOOTBALL } from "@/lib/leagues";
+import { entryFor, feedsOf, LEAGUE_ALLOWLIST, MORE_API_FOOTBALL, neutralRound, POOL_SETTINGS } from "@/lib/leagues";
+import { planRun } from "@/lib/syncOrder";
 
 const allow = LEAGUE_ALLOWLIST["api-football"];
 const match = (country: string, name: string) => entryFor(allow, { externalId: "x", name, country });
@@ -109,12 +110,12 @@ describe("european rating pool size", () => {
   // the pool, with both teams included, once per European cup. Letting lower tiers in took it from
   // ~20 competitions to ~150 and got the sync killed for running out of memory.
   it("is fed by top flights only", () => {
-    const feeders = MORE_API_FOOTBALL.filter((e) => e.feeds === "europe");
+    const feeders = MORE_API_FOOTBALL.filter((e) => feedsOf(e).includes("europe"));
     const lower = feeders.filter((e) => (e.tier ?? 1) !== 1).map((e) => `${e.match?.country} ${String(e.match?.name)}`);
     expect(lower, `lower tiers must not feed the europe pool:\n${lower.join("\n")}`).toEqual([]);
   });
   it("stays small enough to fit in memory", () => {
-    const feeders = MORE_API_FOOTBALL.filter((e) => e.feeds === "europe");
+    const feeders = MORE_API_FOOTBALL.filter((e) => feedsOf(e).includes("europe"));
     expect(feeders.length).toBeGreaterThan(20);  // it is doing its job
     expect(feeders.length).toBeLessThan(60);     // and not ruining the server
   });
@@ -163,5 +164,67 @@ describe("who gets the capped stats/odds/injury budget", () => {
   it("excludes the pooled cups, which are rated from the domestic leagues anyway", () => {
     expect(isMajor("World", "UEFA Champions League", "2")).toBe(false);
     expect(isMajor("World", "World Cup", "1")).toBe(false);
+  });
+});
+
+describe("European and English club cups", () => {
+  const byId = (provider: string, id: string) => LEAGUE_ALLOWLIST[provider].find((a) => a.id === id);
+
+  it("carries the Champions League, Europa League, Conference League, FA Cup and EFL Cup", () => {
+    for (const [id, pool] of [["2", "europe"], ["3", "europe"], ["848", "europe"], ["45", "england"], ["48", "england"]]) {
+      expect(byId("api-football", id)?.pool, `api-football ${id}`).toBe(pool);
+    }
+    for (const [id, pool] of [["2", "europe"], ["5", "europe"], ["2286", "europe"], ["24", "england"], ["27", "england"]]) {
+      expect(byId("sportmonks", id)?.pool, `sportmonks ${id}`).toBe(pool);
+    }
+    // The cups come in by id, so the name guard that keeps domestic cups out does not stop them.
+    expect(entryFor(allow, { externalId: "45", name: "FA Cup", country: "England" })).toBeTruthy();
+    expect(entryFor(allow, { externalId: "48", name: "League Cup", country: "England" })).toBeTruthy();
+    expect(POOL_SETTINGS.england).toBeTruthy();
+  });
+
+  it("rates the English cups against the whole pyramid, Premier League to National League", () => {
+    const feeders = allow.filter((e) => feedsOf(e).includes("england"));
+    const ids = feeders.flatMap((e) => (e.id ? [e.id] : []));
+    expect(ids.sort()).toEqual(["39", "40", "41", "42"]);
+    expect(feeders.some((e) => e.match?.country === "England" && e.match.name.test("National League"))).toBe(true);
+    // The Premier League and Championship still feed the European pool as well.
+    expect(feedsOf(byId("api-football", "39")!)).toEqual(["europe", "england"]);
+  });
+
+  it("knows which cup rounds are played at a neutral ground", () => {
+    const af = (externalId: string, round: string) => neutralRound({ provider: "API_FOOTBALL", externalId }, round);
+    expect(af("2", "Final")).toBe(true);
+    expect(af("2", "Semi-finals")).toBe(false);        // two legs, at home
+    expect(af("45", "Semi-finals")).toBe(true);        // FA Cup semis are at Wembley
+    expect(af("45", "Final")).toBe(true);
+    expect(af("45", "3rd Round")).toBe(false);
+    expect(af("48", "Semi-finals")).toBe(false);       // EFL Cup semis are two-legged
+    expect(af("48", "Final")).toBe(true);
+    expect(af("39", "Regular Season - 10")).toBe(false);
+    expect(neutralRound({ provider: "API_FOOTBALL", externalId: "45" }, null)).toBe(false);
+  });
+});
+
+describe("bounded sync run", () => {
+  type L = { id: string; pool: string; urgent: number; last: number };
+  const run = (ls: L[], max: number) => planRun(ls, { max, pool: (l) => l.pool, urgent: (l) => l.urgent, lastSynced: (l) => l.last }).map((l) => l.id);
+
+  it("does not starve pooled competitions behind the domestic ones", () => {
+    // 250 domestic leagues, all synced more recently than the never-synced Champions League.
+    const ls: L[] = [...Array(250).keys()].map((i) => ({ id: `d${i}`, pool: "", urgent: 1, last: 1000 + i }));
+    ls.push({ id: "CL", pool: "europe", urgent: 1, last: 0 }, { id: "FAC", pool: "england", urgent: 0, last: 5000 });
+    const picked = run(ls, 60);
+    expect(picked).toHaveLength(60);
+    expect(picked).toContain("CL");
+    expect(picked).toContain("FAC");
+  });
+
+  it("still runs pooled competitions after the domestic ones, grouped by pool", () => {
+    const ls: L[] = [
+      { id: "UEL", pool: "europe", urgent: 1, last: 1 }, { id: "FAC", pool: "england", urgent: 1, last: 2 },
+      { id: "PL", pool: "", urgent: 1, last: 3 }, { id: "UCL", pool: "europe", urgent: 1, last: 4 }, { id: "BL", pool: "", urgent: 1, last: 5 },
+    ];
+    expect(run(ls, 10)).toEqual(["PL", "BL", "FAC", "UEL", "UCL"]);
   });
 });

@@ -4,11 +4,12 @@ import { addDays, format } from "date-fns";
 const ymd = (d: Date) => format(d, "yyyy-MM-dd");
 import type { FootballProvider, PFixture } from "../providers/types";
 import { PROVIDER_ENUM, THROTTLE_MS } from "../providers/constants";
-import { entryFor, LEAGUE_ALLOWLIST, POOL_SETTINGS } from "../leagues";
+import { entryFor, feedsOf, LEAGUE_ALLOWLIST, POOL_SETTINGS } from "../leagues";
 import { FIXTURE_WINDOW_DAYS } from "../window";
-import { rateAndPredictLeague } from "./predict";
+import { clearPoolCache, rateAndPredictLeague } from "./predict";
 import { lockDue, refitCalibration, refreshMarketTrust, settle, snapshotAccuracy } from "./ledger";
 import { providerCalls } from "../providers/http";
+import { planRun } from "../syncOrder";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -79,6 +80,19 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
       return e.focus === "europe-strong" || e.focus === "england" || (e.tier ?? 1) === 1;
     };
     /*
+     * The club cups (Champions League, Europa League, Conference League, FA Cup, EFL Cup) are some of the
+     * most-bet fixtures there are, but they are pooled and so never counted as major — which meant the
+     * value list never had a price for them. They get odds from their own small budget, separate from
+     * the leagues', because pooled competitions run last and would otherwise find it already spent.
+     * Stats stay with the leagues: a pooled fit reads every feeding league's corners anyway.
+     */
+    const clubCup = (l: { externalId: string; name: string; country: string }) => {
+      const e = entryFor(allow, l);
+      return !!e?.pool && e.pool !== "intl";
+    };
+    const CUP_ODDS_CAP = Number(process.env.MAX_CUP_ODDS_CALLS) || 10;
+    let cupOddsCalls = 0;
+    /*
      * A bounded number of leagues per run, stalest first.
      *
      * The ordering above was only ever a recovery aid — a run that died partway resumed where it left
@@ -95,11 +109,11 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
      * than dragging the machine into swap — which is what made it impossible even to log in and stop.
      */
     const maxLeagues = Number(process.env.MAX_LEAGUES_PER_SYNC) || 60;
-    const eligible = (await p.getLeagues()).filter((l) => entryFor(allow, l))
-      .sort((x, y) => Number(!!entryFor(allow, x)?.pool) - Number(!!entryFor(allow, y)?.pool)
-        || urgent(x.externalId) - urgent(y.externalId)
-        || (lastSynced.get(x.externalId) ?? 0) - (lastSynced.get(y.externalId) ?? 0));
-    const leagues = eligible.slice(0, maxLeagues);
+    const eligible = (await p.getLeagues()).filter((l) => entryFor(allow, l));
+    const leagues = planRun(eligible, {
+      max: maxLeagues, pool: (l) => entryFor(allow, l)?.pool ?? "",
+      urgent: (l) => urgent(l.externalId), lastSynced: (l) => lastSynced.get(l.externalId) ?? 0,
+    });
     if (eligible.length > leagues.length) {
       const urgentCount = leagues.filter((l) => urgent(l.externalId) === 0).length;
       report.deferred = `${eligible.length - leagues.length} competition(s) left for the next run (cap ${maxLeagues}; ${urgentCount} kicking off within ${URGENT_HOURS}h took priority, the rest rotate by staleness)`;
@@ -128,8 +142,8 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
       const pool = entry.pool ? POOL_SETTINGS[entry.pool] : undefined;
       const league = await db.league.upsert({
         where: { provider_externalId_season: { provider, externalId: l.externalId, season: l.season } },
-        update: { name: l.name, country: l.country, code: l.code, focusGroup: entry.focus, ratingPool: entry.pool ?? null, feedsPool: entry.feeds ?? null, neutral: !!entry.neutral, tier: entry.tier ?? 1 },
-        create: { provider, externalId: l.externalId, name: l.name, country: l.country, code: l.code, season: l.season, focusGroup: entry.focus, ratingPool: entry.pool ?? null, feedsPool: entry.feeds ?? null, neutral: !!entry.neutral, tier: entry.tier ?? 1 },
+        update: { name: l.name, country: l.country, code: l.code, focusGroup: entry.focus, ratingPool: entry.pool ?? null, feedsPool: feedsOf(entry).join(",") || null, neutral: !!entry.neutral, tier: entry.tier ?? 1 },
+        create: { provider, externalId: l.externalId, name: l.name, country: l.country, code: l.code, season: l.season, focusGroup: entry.focus, ratingPool: entry.pool ?? null, feedsPool: feedsOf(entry).join(",") || null, neutral: !!entry.neutral, tier: entry.tier ?? 1 },
       });
       const major = majorLeague(l);
       // Logged BEFORE the work, not just after: a sync that stalls or is killed otherwise leaves no
@@ -189,13 +203,15 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
       }
       // Bookmaker odds for the value list and the market baseline (API-Football), capped per run
       let quotes = 0;
-      if (p.getLeagueOdds && major && oddsCalls < ODDS_CAP) {
+      const cup = clubCup(l);
+      const oddsLeft = () => (cup ? cupOddsCalls < CUP_ODDS_CAP : oddsCalls < ODDS_CAP);
+      if (p.getLeagueOdds && (major || cup) && oddsLeft()) {
         const soon = await db.fixture.findMany({ where: { leagueId: league.id, status: "SCHEDULED", kickoffUtc: { gt: now, lte: addDays(now, 7) } }, select: { id: true, externalId: true } });
         if (soon.length) {
           const byExt = new Map(soon.map((f) => [f.externalId, f.id]));
-          for (let page = 1, pages = 1; page <= Math.min(pages, 5) && oddsCalls < ODDS_CAP; page++) {
+          for (let page = 1, pages = 1; page <= Math.min(pages, 5) && oddsLeft(); page++) {
             try {
-              const r = await p.getLeagueOdds(l.externalId, l.season, page); oddsCalls++;
+              const r = await p.getLeagueOdds(l.externalId, l.season, page); if (cup) cupOddsCalls++; else oddsCalls++;
               if (!r) break;
               pages = r.pages;
               const rows = r.items.flatMap((it) => { const fid = byExt.get(it.fixtureExt); return fid ? Object.entries(it.quotes).map(([market, q]) => ({ fixtureId: fid, market, odds: q!.odds, best: q!.best, books: q!.books })) : []; });
@@ -210,7 +226,7 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
         now,
         newsLoader: async (fx) => {
           if (fx.kickoffUtc.getTime() - now.getTime() > 24 * 3600_000) return null; // only fetch news close to kickoff
-          if (!major) return null; // the injury budget goes to the leagues people bet on
+          if (!major && !cup) return null; // the injury budget goes to the competitions people bet on
           if (injuryCalls >= (Number(process.env.MAX_INJURY_CALLS) || 25)) return null; // protect the daily quota
           injuryCalls++;
           const inj = await p.getInjuries(fx.externalId);
@@ -226,6 +242,7 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
       const r = report[label(l)] as { fixtures?: number; upcoming?: number; predictions?: number };
       note(`[${++done}/${leagues.length}] ${label(l)}${major ? " *" : ""} — ${r.fixtures ?? 0} fixtures, ${r.upcoming ?? 0} upcoming, ${r.predictions ?? 0} predictions · ${providerCalls.get()} requests so far`);
     }
+    clearPoolCache(); // the pooled fit is only valid for this run's `now`; don't hold it in a long-lived process
     note(`all ${leagues.length} competitions done in ${providerCalls.get()} provider requests; running the ledger`);
     // Ledger: lock due calls, append results, refit calibration, refresh daily accuracy rows
     report.providerRequests = providerCalls.get();
@@ -239,6 +256,7 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
     await db.syncLog.update({ where: { id: log.id }, data: { ok: true, finishedAt: new Date(), message: JSON.stringify(report).slice(0, 2000) } });
     return report;
   } catch (e) {
+    clearPoolCache();
     await db.syncLog.update({ where: { id: log.id }, data: { ok: false, finishedAt: new Date(), message: (e as Error).message.slice(0, 2000) } });
     throw e;
   }

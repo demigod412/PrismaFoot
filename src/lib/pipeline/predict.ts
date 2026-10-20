@@ -1,9 +1,9 @@
 import type { League, Prisma, PrismaClient, Fixture, Team } from "@prisma/client";
-import { fitLeague, type HistMatch, type LeagueFit, type TeamPrior } from "../model/ratings";
+import { fitLeague, fitPool, type HistMatch, type LeagueFit, type PoolMember, type TeamPrior } from "../model/ratings";
 import { predictFixture, type NewsInput } from "../model/predict";
 import { IDENTITY_SET, type Calibrator, type CalibratorSet } from "../model/calibration";
 import { MODEL_VERSION } from "../model/constants";
-import { POOL_SETTINGS } from "../leagues";
+import { neutralRound, POOL_SETTINGS } from "../leagues";
 import { fitRates, totalLadder, MIN_RATE_MATCHES, type RateFit, type RateMatch } from "../model/rates";
 import { FIXTURE_WINDOW_DAYS } from "../window";
 
@@ -97,18 +97,34 @@ async function newcomerPriors(db: PrismaClient, league: League, teams: Team[], c
   return priors;
 }
 
-export async function buildContext(db: PrismaClient, leagueId: string, now: Date): Promise<LeagueContext> {
-  const league = await db.league.findUniqueOrThrow({ where: { id: leagueId } });
+/** League.feedsPool holds a comma-separated list ("europe,england"); match one pool name exactly within it. */
+const feedsPoolFilter = (pool: string): Prisma.LeagueWhereInput[] => [
+  { feedsPool: pool }, { feedsPool: { startsWith: `${pool},` } }, { feedsPool: { endsWith: `,${pool}` } }, { feedsPool: { contains: `,${pool},` } },
+];
+
+/**
+ * The pooled fit is identical for every competition in the pool at the same `now` — the Champions League,
+ * Europa League and Conference League all read the same domestic + European history. Fitting it once per
+ * run instead of once per cup cuts the heaviest work in a sync by two thirds. One entry only, so memory is
+ * bounded by the single largest pool; the ingest clears it when the run ends.
+ */
+type PoolShared = Pick<LeagueContext, "hist" | "fit" | "cornerFit" | "shotFit" | "h1Share"> & { outsiders: Set<string> };
+let poolCache: { key: string; value: PoolShared } | null = null;
+export function clearPoolCache() { poolCache = null; }
+
+async function loadShared(db: PrismaClient, league: League, now: Date): Promise<PoolShared> {
   const pool = league.ratingPool ? POOL_SETTINGS[league.ratingPool] : undefined;
-  // Pooled competitions (national teams, European cups) are rated together with every league that feeds the pool,
-  // matching teams by provider id across competitions.
-  const leagueIds = league.ratingPool
-    ? (await db.league.findMany({ where: { provider: league.provider, OR: [{ ratingPool: league.ratingPool }, { feedsPool: league.ratingPool }] }, select: { id: true } })).map((l) => l.id)
-    : [leagueId];
+  const cacheKey = league.ratingPool ? `${league.provider}|${league.ratingPool}|${now.getTime()}` : null;
+  if (cacheKey && poolCache?.key === cacheKey) return poolCache.value;
+  // Pooled competitions (national teams, European cups, English cups) are rated together with every league
+  // that feeds the pool, matching teams by provider id across competitions.
+  const members = league.ratingPool
+    ? await db.league.findMany({ where: { provider: league.provider, OR: [{ ratingPool: league.ratingPool }, ...feedsPoolFilter(league.ratingPool)] }, select: { id: true, ratingPool: true, tier: true } })
+    : [{ id: league.id, ratingPool: null, tier: league.tier }];
   const key = (t: { id: string; externalId: string }) => (league.ratingPool ? t.externalId : t.id);
 
   const hist = await db.fixture.findMany({
-    where: { leagueId: { in: leagueIds }, status: "FINISHED", homeGoals: { not: null }, kickoffUtc: { gte: new Date(now.getTime() - (pool?.historyDays ?? 450) * DAY), lt: now } },
+    where: { leagueId: { in: members.map((l) => l.id) }, status: "FINISHED", homeGoals: { not: null }, kickoffUtc: { gte: new Date(now.getTime() - (pool?.historyDays ?? 450) * DAY), lt: now } },
     include: { homeTeam: true, awayTeam: true }, orderBy: { kickoffUtc: "asc" },
   });
   const ms: HistMatch[] = hist.map((f) => ({
@@ -117,16 +133,26 @@ export async function buildContext(db: PrismaClient, leagueId: string, now: Date
     weight: f.season < league.season ? PREV_SEASON_WEIGHT : 1,
   }));
 
-  const leagueTeams = await db.team.findMany({ where: { leagueId } });
-  const countInLeague = new Map<string, number>(), seasonCount = new Map<string, number>();
-  for (const f of hist) {
-    for (const t of [f.homeTeam, f.awayTeam]) {
-      countInLeague.set(key(t), (countInLeague.get(key(t)) ?? 0) + 1);
-      if (f.season >= league.season) seasonCount.set(key(t), (seasonCount.get(key(t)) ?? 0) + 1);
+  let fit: LeagueFit, outsiders = new Set<string>();
+  if (league.ratingPool) {
+    // Each club's domestic league in the pool = the feeding league of its most recent match (hist is oldest first).
+    const feeder = new Map(members.filter((l) => !l.ratingPool).map((l) => [l.id, l.tier]));
+    const homeLeague = new Map<string, PoolMember>();
+    for (const f of hist) {
+      const tier = feeder.get(f.leagueId);
+      if (tier == null) continue;
+      homeLeague.set(key(f.homeTeam), { group: f.leagueId, tier });
+      homeLeague.set(key(f.awayTeam), { group: f.leagueId, tier });
     }
+    ({ fit, outsiders } = fitPool(ms, now, { halfLifeDays: pool?.halfLifeDays, members: homeLeague }));
+  } else {
+    const leagueTeams = await db.team.findMany({ where: { leagueId: league.id } });
+    const countInLeague = new Map<string, number>();
+    for (const f of hist) for (const t of [f.homeTeam, f.awayTeam]) countInLeague.set(key(t), (countInLeague.get(key(t)) ?? 0) + 1);
+    const priors = await newcomerPriors(db, league, leagueTeams, countInLeague, now);
+    fit = fitLeague(ms, now, { halfLifeDays: pool?.halfLifeDays, priors });
+    outsiders = new Set(priors.keys());
   }
-  const priors = league.ratingPool ? new Map<string, TeamPrior>() : await newcomerPriors(db, league, leagueTeams, countInLeague, now);
-  const fit = fitLeague(ms, now, { halfLifeDays: pool?.halfLifeDays, priors });
 
   const rateSet = (hk: "Corners" | "Shots") => hist.flatMap<RateMatch>((f) => {
     const h = f[`home${hk}`], a = f[`away${hk}`];
@@ -136,13 +162,30 @@ export async function buildContext(db: PrismaClient, leagueId: string, now: Date
   // Share of goals scored in the first half (league-fitted; shrunk to 45% with 200 pseudo-goals)
   const ht = hist.filter((f) => f.htHome != null && f.htAway != null);
   const htGoals = ht.reduce((s, f) => s + f.htHome! + f.htAway!, 0), ftGoals = ht.reduce((s, f) => s + f.homeGoals! + f.awayGoals!, 0);
-  const h1Share = (htGoals + 0.45 * 200) / (ftGoals + 200);
-  const { set, residual } = await loadCalibrators(db, league.provider);
-  return {
-    league, now, key, hist, fit, h1Share,
+  const value: PoolShared = {
+    hist, fit, outsiders,
+    h1Share: (htGoals + 0.45 * 200) / (ftGoals + 200),
     cornerFit: cornerMs.length >= MIN_RATE_MATCHES ? fitRates(cornerMs, now) : null,
     shotFit: shotMs.length >= MIN_RATE_MATCHES ? fitRates(shotMs, now) : null,
-    cal: set, residual, priorKeys: new Set(priors.keys()), seasonCount,
+  };
+  if (cacheKey) poolCache = { key: cacheKey, value };
+  return value;
+}
+
+export async function buildContext(db: PrismaClient, leagueId: string, now: Date): Promise<LeagueContext> {
+  const league = await db.league.findUniqueOrThrow({ where: { id: leagueId } });
+  const key = (t: { id: string; externalId: string }) => (league.ratingPool ? t.externalId : t.id);
+  const shared = await loadShared(db, league, now);
+  const seasonCount = new Map<string, number>(); // matches this season per team key
+  for (const f of shared.hist) {
+    if (f.season < league.season) continue;
+    for (const t of [f.homeTeam, f.awayTeam]) seasonCount.set(key(t), (seasonCount.get(key(t)) ?? 0) + 1);
+  }
+  const { set, residual } = await loadCalibrators(db, league.provider);
+  return {
+    league, now, key, ...shared, cal: set, residual, seasonCount,
+    // Domestic: promoted/relegated sides on a prior. Pooled: clubs seen only in the cup (no domestic league in the pool).
+    priorKeys: shared.outsiders,
   };
 }
 
@@ -171,7 +214,7 @@ export async function writePrediction(db: PrismaClient, ctx: LeagueContext, fx: 
     restAwayDays: la ? Math.round((fx.kickoffUtc.getTime() - la.kickoffUtc.getTime()) / DAY) : null,
     newsHome: opts.news?.home ?? null, newsAway: opts.news?.away ?? null,
     formHome: form(hk), formAway: form(ak),
-    calibrators: ctx.cal, calibrationResidual: ctx.residual, neutral: ctx.league.neutral,
+    calibrators: ctx.cal, calibrationResidual: ctx.residual, neutral: ctx.league.neutral || neutralRound(ctx.league, fx.round),
     earlySeason: early, priorHome: ctx.priorKeys.has(hk), priorAway: ctx.priorKeys.has(ak), h1Share: ctx.h1Share,
   });
   // Corner / shot lines are chosen per fixture (main line at the 50/50 point) with alternatives either side.
