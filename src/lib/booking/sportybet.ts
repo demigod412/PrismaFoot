@@ -173,8 +173,9 @@ export async function eventDetail(eventId: string): Promise<SbEvent | null> {
 export async function findEvents(legs: { fixtureId: string; home: string; away: string; kickoff: Date }[]) {
   const pending = new Map(legs.map((l) => [l.fixtureId, l]));
   const found = new Map<string, SbEvent>();
-  let error: string | null = null;
-  if (!legs.length) return { found, error };
+  let error: string | null = null, scanned = 0;
+  const sample: string[] = [];
+  if (!legs.length) return { found, error, scanned, sample };
   const maxKick = Math.max(...legs.map((l) => l.kickoff.getTime()));
   const hours = Math.min(720, Math.max(24, Math.ceil((maxKick - Date.now()) / 3600_000) + 6));
   for (let page = 1; page <= 30 && pending.size; page++) {
@@ -185,12 +186,14 @@ export async function findEvents(legs: { fixtureId: string; home: string; away: 
     } catch (e) { error = (e as Error).message; break; }
     if (r.bizCode !== 10000) { error = `Sportybet returned code ${r.bizCode}`; break; }
     const events = (r.data?.tournaments ?? []).flatMap((t) => t.events ?? []);
+    scanned += events.length;
+    for (const e of events) if (sample.length < 5) sample.push(`${e.homeTeamName} v ${e.awayTeamName}`);
     if (!events.length) break;
     for (const [id, l] of pending) { const e = matchEvent(events, l.home, l.away, l.kickoff); if (e) { found.set(id, e); pending.delete(id); } }
     if (page * 100 >= (r.data?.totalNum ?? 0)) break;
     await new Promise((res) => setTimeout(res, 250));
   }
-  return { found, error };
+  return { found, error, scanned, sample };
 }
 
 /** Resolve every leg and request a booking code. Legs that can't be mapped are reported, never silently dropped. */
