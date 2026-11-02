@@ -16,7 +16,7 @@ const PREV_SEASON_WEIGHT = 0.85;  // last season still counts, a little less (sq
 const PRIOR_WEIGHT = 8;           // pseudo-matches behind a promoted/relegated prior
 const NEWCOMER_MATCHES = 6;       // fewer matches than this in the league ⇒ use a prior
 /** Alternative corner / shot lines offered around each fixture's own main line. */
-const CORNER_OFFSETS = [-3, -2, -1, 0, 1, 2, 3], SHOT_OFFSETS = [-6, -4, -2, 0, 2, 4, 6];
+const CORNER_OFFSETS = [-3, -2, -1, 0, 1, 2, 3], SHOT_OFFSETS = [-6, -4, -2, 0, 2, 4, 6], TACKLE_OFFSETS = [-6, -4, -2, 0, 2, 4, 6];
 
 type Hist = Fixture & { homeTeam: Team; awayTeam: Team };
 
@@ -42,6 +42,7 @@ export interface LeagueContext {
   fit: LeagueFit;
   cornerFit: RateFit | null;
   shotFit: RateFit | null;
+  tackleFit: RateFit | null;
   cal: CalibratorSet; residual: number;
   h1Share: number;
   priorKeys: Set<string>;
@@ -108,7 +109,7 @@ const feedsPoolFilter = (pool: string): Prisma.LeagueWhereInput[] => [
  * run instead of once per cup cuts the heaviest work in a sync by two thirds. One entry only, so memory is
  * bounded by the single largest pool; the ingest clears it when the run ends.
  */
-type PoolShared = Pick<LeagueContext, "hist" | "fit" | "cornerFit" | "shotFit" | "h1Share"> & { outsiders: Set<string> };
+type PoolShared = Pick<LeagueContext, "hist" | "fit" | "cornerFit" | "shotFit" | "tackleFit" | "h1Share"> & { outsiders: Set<string> };
 let poolCache: { key: string; value: PoolShared } | null = null;
 export function clearPoolCache() { poolCache = null; }
 
@@ -154,11 +155,11 @@ async function loadShared(db: PrismaClient, league: League, now: Date): Promise<
     outsiders = new Set(priors.keys());
   }
 
-  const rateSet = (hk: "Corners" | "Shots") => hist.flatMap<RateMatch>((f) => {
+  const rateSet = (hk: "Corners" | "Shots" | "Tackles") => hist.flatMap<RateMatch>((f) => {
     const h = f[`home${hk}`], a = f[`away${hk}`];
     return h != null && a != null ? [{ homeId: key(f.homeTeam), awayId: key(f.awayTeam), date: f.kickoffUtc, h, a }] : [];
   });
-  const cornerMs = rateSet("Corners"), shotMs = rateSet("Shots");
+  const cornerMs = rateSet("Corners"), shotMs = rateSet("Shots"), tackleMs = rateSet("Tackles");
   // Share of goals scored in the first half (league-fitted; shrunk to 45% with 200 pseudo-goals)
   const ht = hist.filter((f) => f.htHome != null && f.htAway != null);
   const htGoals = ht.reduce((s, f) => s + f.htHome! + f.htAway!, 0), ftGoals = ht.reduce((s, f) => s + f.homeGoals! + f.awayGoals!, 0);
@@ -167,6 +168,7 @@ async function loadShared(db: PrismaClient, league: League, now: Date): Promise<
     h1Share: (htGoals + 0.45 * 200) / (ftGoals + 200),
     cornerFit: cornerMs.length >= MIN_RATE_MATCHES ? fitRates(cornerMs, now) : null,
     shotFit: shotMs.length >= MIN_RATE_MATCHES ? fitRates(shotMs, now) : null,
+    tackleFit: tackleMs.length >= MIN_RATE_MATCHES ? fitRates(tackleMs, now) : null,
   };
   if (cacheKey) poolCache = { key: cacheKey, value };
   return value;
@@ -220,12 +222,14 @@ export async function writePrediction(db: PrismaClient, ctx: LeagueContext, fx: 
   // Corner / shot lines are chosen per fixture (main line at the 50/50 point) with alternatives either side.
   const corners = ctx.cornerFit ? totalLadder(ctx.cornerFit, hk, ak, CORNER_OFFSETS) : null;
   const shots = ctx.shotFit ? totalLadder(ctx.shotFit, hk, ak, SHOT_OFFSETS) : null;
+  const tackles = ctx.tackleFit ? totalLadder(ctx.tackleFit, hk, ak, TACKLE_OFFSETS) : null;
   const mainOver = (t: { main: number; rows: { line: number; over: number }[] }) => t.rows.find((r) => r.line === t.main)!.over;
   const capLow = (x: number) => (out.band === "LOW" ? Math.min(0.89, Math.max(0.11, x)) : x);
   if (!corners) out.dataFlags.push("no_corner_data");
   if (!shots) out.dataFlags.push("no_shot_data");
   // New revision only when inputs changed, or corners/shots became available
-  if (prev && prev.inputsHash === out.inputsHash && (prev.expCorners != null) === !!corners && (prev.expShots != null) === !!shots && (prev.cornerLines != null) === !!corners && prev.calHtDraw != null && prev.calNoRun3 != null && prev.calGg2 != null) return false;
+  if (prev && prev.inputsHash === out.inputsHash && (prev.expCorners != null) === !!corners && (prev.expShots != null) === !!shots && (prev.cornerLines != null) === !!corners && prev.calHtDraw != null && prev.calNoRun3 != null && prev.calGg2 != null
+    && prev.calMsH10_20_30 != null && (prev.tackleLines != null) === !!tackles) return false;
 
   await db.prediction.create({ data: {
     fixtureId: fx.id, modelVersion: out.modelVersion, revision: (prev?.revision ?? 0) + 1, inputsHash: out.inputsHash,
@@ -240,11 +244,15 @@ export async function writePrediction(db: PrismaClient, ctx: LeagueContext, fx: 
     calH1Under15: out.halves.h1u15, calH1Under25: out.halves.h1u25, calH2Under25: out.halves.h2u25, h1Share: out.halves.share, calHtDraw: out.halves.htDraw,
     calNoRun3: out.shapes.noRun3, calNoBothHalvesOver15: out.shapes.noBothHalvesOver15, calNoWinBy2: out.shapes.noWinBy2,
     calGg2: out.shapes.gg2,
+    calMsH10_20_30: out.multi.H10_20_30, calMsA01_02_03: out.multi.A01_02_03, calMsH20_21_30_31: out.multi.H20_21_30_31,
+    calMsA02_12_03_13: out.multi.A02_12_03_13, calMsH21_31_41: out.multi.H21_31_41, calMsA12_13_14: out.multi.A12_13_14,
     calHomeOrOver25: out.winOrOver.cal.home, calAwayOrOver25: out.winOrOver.cal.away,
     ...(corners ? { cornersLine: corners.main, expCorners: corners.expected, rawCornersOver: mainOver(corners), calCornersOver: capLow(mainOver(corners)),
       cornerLines: corners.rows.map((r) => ({ l: r.line, o: capLow(r.over) })) as unknown as Prisma.InputJsonValue } : {}),
     ...(shots ? { shotsLine: shots.main, expShots: shots.expected, rawShotsOver: mainOver(shots), calShotsOver: capLow(mainOver(shots)),
       shotLines: shots.rows.map((r) => ({ l: r.line, o: capLow(r.over) })) as unknown as Prisma.InputJsonValue } : {}),
+    ...(tackles ? { tacklesLine: tackles.main, expTackles: tackles.expected, calTacklesOver: capLow(mainOver(tackles)),
+      tackleLines: tackles.rows.map((r) => ({ l: r.line, o: capLow(r.over) })) as unknown as Prisma.InputJsonValue } : {}),
     confidence: out.confidence, band: out.band, dataFlags: out.dataFlags,
     rationale: out.rationale, features: out.features as Prisma.InputJsonValue,
   } });

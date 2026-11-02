@@ -2,7 +2,7 @@ import type { Prisma, PrismaClient, Provider } from "@prisma/client";
 import { addDays, format } from "date-fns";
 import { fitBinary } from "../model/calibration";
 import { MODEL_VERSION } from "../model/constants";
-import { allMarkets } from "../markets";
+import { allMarkets, fixtureStats } from "../markets";
 import { computeAccuracy, dailySeries, devig, tableFavourites, type ScoredCall, type Triple } from "../accuracy";
 import type { FootballProvider } from "../providers/types";
 import { LOCK_MINUTES } from "./predict";
@@ -104,7 +104,7 @@ export async function loadScoredCalls(db: PrismaClient, provider: Provider, sinc
     return {
       fixtureId: p.fixtureId, leagueId: p.fixture.leagueId, kickoff: p.fixture.kickoffUtc, band: p.band,
       cal: [p.calHome, p.calDraw, p.calAway] as Triple, raw: [p.rawHome, p.rawDraw, p.rawAway] as Triple,
-      h: r.homeGoals, a: r.awayGoals, hc: p.fixture.homeCorners, ac: p.fixture.awayCorners, hs: p.fixture.homeShots, as: p.fixture.awayShots, hh: r.htHome ?? p.fixture.htHome, ha: r.htAway ?? p.fixture.htAway,
+      h: r.homeGoals, a: r.awayGoals, ...fixtureStats(p.fixture), hh: r.htHome ?? p.fixture.htHome, ha: r.htAway ?? p.fixture.htAway,
       cornersLine: p.cornersLine, shotsLine: p.shotsLine,
       markets: allMarkets(p, "Home", "Away"),
       tableFav: favs.get(p.fixtureId) ?? null,

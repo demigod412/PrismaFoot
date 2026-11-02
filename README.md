@@ -41,6 +41,8 @@ src/app/                          App Router pages, manifest.ts, sw.ts (Serwist)
 tests/                            vitest — engine invariants
 scripts/backtest-synthetic.ts     walk-forward Brier/log loss vs baselines on simulated leagues
 scripts/backtest-pool.ts          pooled (cup) fit vs single fit on a simulated pyramid
+scripts/backtest-banker.ts        daily banker on simulated days: stated vs actual win rate, leg minimums
+scripts/sportycheck.ts            what Sportybet returns for a match (read-only)
 ```
 
 ## Phase status

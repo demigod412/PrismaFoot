@@ -2,6 +2,7 @@ import Link from "next/link";
 export const metadata = { title: "More" };
 const LINKS = [
   { href: "/top", t: "Top 50 tips", d: "Strongest tip per match, today up to 7 days ahead" },
+  { href: "/banker", t: "Daily banker", d: "1.74 (6+ games) and 2.25 (8+ games) rollover slips, game of the day, rollover record" },
   { href: "/builder", t: "Odds builder", d: "Build a 3, 5, 10, 30 or 100-odds combination for a day or a week" },
   { href: "/fixtures", t: "Fixtures", d: "3-week board with league and market filters" },
   { href: "/leagues", t: "Leagues", d: "Tables, ratings and fixtures per league" },

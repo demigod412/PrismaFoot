@@ -1,7 +1,7 @@
 import "server-only";
 import { fetchJson, qs } from "./http";
 import { parseApiFootballOdds } from "../odds";
-import type { FootballProvider, FxStatus, PFixture, PInjury, PLeague, PStanding } from "./types";
+import type { FootballProvider, FxStatus, PDetail, PFixture, PInjury, PLeague, PStanding } from "./types";
 
 /* API-Football v3 (direct api-sports or via RapidAPI). */
 type AfFixture = {
@@ -103,6 +103,34 @@ export function apiFootball(opts: { key?: string; rapidKey?: string; rapidHost?:
       if (r.length < 2) return null;
       const v = (i: number, type: string) => { const x = r[i].statistics.find((s) => s.type === type)?.value; return x == null ? null : Number(x) || 0; };
       return { homeCorners: v(0, "Corner Kicks"), awayCorners: v(1, "Corner Kicks"), homeShots: v(0, "Total Shots"), awayShots: v(1, "Total Shots") };
+    },
+    async getDetails(fixtureIds) {
+      type Stat = { team: { id: number }; statistics: { type: string; value: number | string | null }[] };
+      type Players = { team: { id: number }; players: { statistics: { tackles?: { total: number | null } }[] }[] };
+      type Detail = AfFixture & { statistics?: Stat[]; players?: Players[] };
+      const out = new Map<string, PDetail>();
+      for (let i = 0; i < fixtureIds.length; i += 20) {
+        const r = await get<Detail[]>(`/fixtures?ids=${fixtureIds.slice(i, i + 20).join("-")}`);
+        for (const f of r) {
+          const sideStat = (teamId: number, type: string) => {
+            const x = f.statistics?.find((s) => s.team.id === teamId)?.statistics.find((s) => s.type === type)?.value;
+            return x == null ? null : Number(x) || 0;
+          };
+          // Tackles are only in the per-player block. A side with no player rows has no figure, not zero.
+          const tackles = (teamId: number) => {
+            const ps = f.players?.find((p) => p.team.id === teamId)?.players;
+            if (!ps?.length) return null;
+            return ps.reduce((s, p) => s + (p.statistics?.[0]?.tackles?.total ?? 0), 0);
+          };
+          const h = f.teams.home.id, a = f.teams.away.id;
+          out.set(String(f.fixture.id), {
+            homeCorners: sideStat(h, "Corner Kicks"), awayCorners: sideStat(a, "Corner Kicks"),
+            homeShots: sideStat(h, "Total Shots"), awayShots: sideStat(a, "Total Shots"),
+            homeTackles: tackles(h), awayTackles: tackles(a),
+          });
+        }
+      }
+      return out;
     },
     async testConnection() {
       try {

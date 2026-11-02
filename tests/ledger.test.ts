@@ -105,7 +105,7 @@ describe("sportybet mapping", () => {
     expect(resolveSelection(ev, "dc_x2")).toEqual({ eventId: "sr:match:1", marketId: "10", specifier: null, outcomeId: "11" });
     expect(resolveSelection(ev, "under25")).toMatchObject({ marketId: "18", specifier: "total=2.5", outcomeId: "13" });
     expect(resolveSelection(ev, "btts_no")).toMatchObject({ outcomeId: "76" });
-    expect(resolveSelection(ev, "corners_over")).toEqual({ error: "market not offered" });
+    expect(resolveSelection(ev, "corners_over@9.5")).toEqual({ error: "market not offered (corners over 9.5)" });
     expect(resolveSelection(ev, "shots_over")).toMatchObject({ error: expect.any(String) });
   });
 });
@@ -467,5 +467,37 @@ describe("builder: safest picks the likeliest legs", () => {
     const [s] = buildSlips(pool, { target: 5, maxLegs: 10, mode: "safe", minP: 0.5, maxPerGroup: 3 });
     const unlikely = s.legs.filter((l) => l.label === "unlikely").length;
     expect(unlikely).toBe(0);
+  });
+});
+
+describe("sportybet: full market list", () => {
+  const ev = { eventId: "sr:match:9", homeTeamName: "Wolves", awayTeamName: "Brentford", estimateStartTime: Date.UTC(2026, 10, 2, 15),
+    markets: [
+      { id: "1", outcomes: [{ id: "1", desc: "Home" }, { id: "2", desc: "Draw" }, { id: "3", desc: "Away" }] },
+      { id: "18", specifier: "total=1.5", outcomes: [{ id: "12", desc: "Over 1.5" }, { id: "13", desc: "Under 1.5" }] },
+      { id: "18", specifier: "total=3.5", outcomes: [{ id: "12", desc: "Over 3.5" }, { id: "13", desc: "Under 3.5", isActive: 0 }] },
+      { id: "60", outcomes: [{ id: "1", desc: "Home" }, { id: "2", desc: "Draw" }, { id: "3", desc: "Away" }] },
+      { id: "166", desc: "Total Corners", specifier: "total=9.5", outcomes: [{ id: "12", desc: "Over 9.5" }, { id: "13", desc: "Under 9.5" }] },
+      { id: "551", desc: "Multiscores", outcomes: [{ id: "a", desc: "1:0, 2:0 or 3:0" }, { id: "b", desc: "0:1, 0:2 or 0:3" }, { id: "c", desc: "2:1, 3:1 or 4:1" }] },
+      { id: "777", desc: "GG/NG 2+", outcomes: [{ id: "y", desc: "Yes" }, { id: "n", desc: "No" }] },
+    ] };
+  it("books the alternative lines the listing used to miss", () => {
+    expect(resolveSelection(ev, "over15")).toMatchObject({ marketId: "18", specifier: "total=1.5", outcomeId: "12" });
+    expect(resolveSelection(ev, "ht_draw")).toMatchObject({ marketId: "60", outcomeId: "2" });
+    expect(resolveSelection(ev, "corners_under@9.5")).toMatchObject({ marketId: "166", specifier: "total=9.5", outcomeId: "13" });
+    // A suspended outcome is reported, not booked.
+    expect(resolveSelection(ev, "under35")).toEqual({ error: "selection not available (over/under 3.5)" });
+  });
+  it("books multiscores by their exact score set, and No GG2+ by name", () => {
+    expect(resolveSelection(ev, "ms_h10_20_30")).toMatchObject({ marketId: "551", outcomeId: "a" });
+    expect(resolveSelection(ev, "ms_a01_02_03")).toMatchObject({ marketId: "551", outcomeId: "b" });
+    expect(resolveSelection(ev, "ms_h21_31_41")).toMatchObject({ outcomeId: "c" });
+    expect(resolveSelection(ev, "ms_h20_21_30_31")).toMatchObject({ error: expect.stringContaining("doesn't offer") });
+    expect(resolveSelection(ev, "no_gg2")).toMatchObject({ marketId: "777", outcomeId: "n" });
+  });
+  it("matches a short Sportybet name to the full club name", () => {
+    expect(matchEvent([ev], "Wolverhampton Wanderers", "Brentford", new Date(Date.UTC(2026, 10, 2, 15)))?.eventId).toBe("sr:match:9");
+    // Still refuses a different fixture at the same time.
+    expect(matchEvent([ev], "West Ham", "Brentford", new Date(Date.UTC(2026, 10, 2, 15)))).toBeNull();
   });
 });

@@ -1,16 +1,16 @@
 import type { Prediction } from "@prisma/client";
-import { allMarkets, type MarketKey, type MarketSource, type MarketTip } from "./markets";
+import { allMarkets, MULTISCORES, scoresText, type MarketKey, type MarketSource, type MarketTip } from "./markets";
 
 export type Market = MarketKey | "btts";
 export interface Pick { market: Market; label: string; p: number }
 
-export interface ScannerFloors { safeP: number; winMargin: number; o15: number; o25: number; o35: number; btts: number; draw: number; team2: number; u25: number; u35: number; u45: number; dc: number; bttsNo: number; by2: number; corners: number; shots: number; h1u15: number; h1u25: number; h2u25: number; winOver: number; htDraw: number; noWinBy2: number; noBothHalves: number; noRun3: number; gg2: number }
+export interface ScannerFloors { safeP: number; winMargin: number; o15: number; o25: number; o35: number; btts: number; draw: number; team2: number; u25: number; u35: number; u45: number; dc: number; bttsNo: number; by2: number; corners: number; shots: number; h1u15: number; h1u25: number; h2u25: number; winOver: number; htDraw: number; noWinBy2: number; noBothHalves: number; noRun3: number; gg2: number; noGg2: number; ms: number; tackles: number }
 /*
  * Floors for the three shape markets are set where the market is actually selective. "Not both halves
  * over 1.5" sits above 0.85 on most fixtures and "no win by 2+" runs from 0.30 on a mismatch to 0.66 on
  * an even game, so a floor borrowed from the goals markets would either pass everything or nothing.
  */
-export const DEFAULT_FLOORS: ScannerFloors = { safeP: 0.7, winMargin: 0.1, o15: 0.72, o25: 0.55, o35: 0.35, btts: 0.55, draw: 0.3, team2: 0.45, u25: 0.55, u35: 0.72, u45: 0.85, dc: 0.75, bttsNo: 0.55, by2: 0.4, corners: 0.6, shots: 0.6, h1u15: 0.6, h1u25: 0.78, h2u25: 0.7, winOver: 0.7, htDraw: 0.3, noWinBy2: 0.6, noBothHalves: 0.85, noRun3: 0.8, gg2: 0.15 };
+export const DEFAULT_FLOORS: ScannerFloors = { safeP: 0.7, winMargin: 0.1, o15: 0.72, o25: 0.55, o35: 0.35, btts: 0.55, draw: 0.3, team2: 0.45, u25: 0.55, u35: 0.72, u45: 0.85, dc: 0.75, bttsNo: 0.55, by2: 0.4, corners: 0.6, shots: 0.6, h1u15: 0.6, h1u25: 0.78, h2u25: 0.7, winOver: 0.7, htDraw: 0.3, noWinBy2: 0.6, noBothHalves: 0.85, noRun3: 0.8, gg2: 0.15, noGg2: 0.85, ms: 0.2, tackles: 0.6 };
 
 export const SCANNERS = [
   { slug: "all", name: "All", blurb: "Every fixture with a model call, ordered by kickoff." },
@@ -40,6 +40,9 @@ export const SCANNERS = [
   { slug: "nowinby2", name: "No win by 2+", blurb: "The margin to be a draw or a single goal, above your floor. The exact complement of the win-by-2 list." },
   { slug: "nobothhalves", name: "Not both halves O1.5", blurb: "At most one half to produce two or more goals, above your floor. It takes four goals to fail, so the floor is set high." },
   { slug: "gg2", name: "GG2+", blurb: "Both sides to score two or more, above your floor. A joint probability off the scoreline matrix, not the two teams' chances multiplied together. Rare by construction — the strongest fixtures sit near a fifth, so the floor is set low and the list is meant to be read as long shots ranked, not as calls." },
+  { slug: "nogg2", name: "No GG2+", blurb: "NOT both sides to score two or more: at least one team scores one or none. Lands in most matches, so the floor is set high; the strongest fixtures make solid banker legs." },
+  { slug: "ms", name: "Multiscore", blurb: "The fixture's most likely multiscore, for whichever side the model favours: 1-0/2-0/3-0, 2-0/2-1/3-0/3-1 or 2-1/3-1/4-1 (and the away mirrors 0-1/0-2/0-3, 0-2/1-2/0-3/1-3, 1-2/1-3/1-4). A set of exact scores, so even the best sits near a third: long prices, not calls." },
+  { slug: "tackles", name: "Tackles", blurb: "Total tackles at this fixture's own line, over or under, above your floor. Needs player statistics (API-Football), so it fills in as the detail backfill reaches each league." },
   { slug: "norun3", name: "No 3 in a row", blurb: "Neither side to score three goals in a row, above your floor. Exact, and never scored: settling it needs the order the goals arrived in, which is not stored." },
   { slug: "blend", name: "Blend", blurb: "Pick legs yourself. Combined probability assumes independence." },
 ] as const;
@@ -51,10 +54,11 @@ export const MARKET_LABEL: Partial<Record<Market, string>> & Record<string, stri
   corners_over: "Corners Over 8.5", corners_under: "Corners Under 8.5", shots_over: "Shots Over 24.5", shots_under: "Shots Under 24.5",
   h1_under15: "1H Under 1.5", h1_under25: "1H Under 2.5", h2_under25: "2H Under 2.5", home_or_over25: "Home or Over 2.5", away_or_over25: "Away or Over 2.5", ht_draw: "HT draw",
   no_win_by2: "No win by 2+", no_both_halves_over15: "Not both halves O1.5", no_run3: "No 3 in a row",
-  gg2: "Both teams 2+",
+  gg2: "Both teams 2+", no_gg2: "No GG2+",
+  ...Object.fromEntries(MULTISCORES.map((m) => [m.key, `${m.side === "home" ? "Home" : "Away"} ${scoresText(m.scores)}`])),
 };
 /** Label for any market key, including per-fixture corner / shot lines ("corners_over@10.5"). */
-export const labelOf = (m: Market) => MARKET_LABEL[m as keyof typeof MARKET_LABEL] ?? String(m).replace(/^(corners|shots)_(over|under)@/, (_x, b: string, s: string) => `${b[0].toUpperCase()}${b.slice(1)} ${s === "over" ? "Over" : "Under"} `);
+export const labelOf = (m: Market) => MARKET_LABEL[m as keyof typeof MARKET_LABEL] ?? String(m).replace(/^(corners|shots|tackles)_(over|under)@/, (_x, b: string, s: string) => `${b[0].toUpperCase()}${b.slice(1)} ${s === "over" ? "Over" : "Under"} `);
 
 export function marketP(p: MarketSource, m: Market): number {
   const dyn = allMarkets(p, "Home", "Away").find((x) => x.key === m);
@@ -130,12 +134,12 @@ export function scan(slug: ScannerSlug, p: MarketSource & { matrix?: unknown }, 
       const b = p.calHomeBy2 >= p.calAwayBy2 ? { market: "home_by2" as Market, label: "Home to win by 2+", p: p.calHomeBy2 } : { market: "away_by2" as Market, label: "Away to win by 2+", p: p.calAwayBy2 };
       return b.p >= f.by2 ? b : null;
     }
-    case "corners": case "shots": {
-      const g = slug === "corners" ? "corners" : "shots";
+    case "corners": case "shots": case "tackles": {
+      const g = slug;
       const rows = allMarkets(p, "Home", "Away").filter((x) => x.group === g);
       if (!rows.length) return null;
       const b = (rows.find((x) => x.strong) ?? rows.filter((x) => x.main).sort((x, y) => y.p - x.p)[0]) as MarketTip;
-      const floor = slug === "corners" ? f.corners : f.shots;
+      const floor = slug === "corners" ? f.corners : slug === "shots" ? f.shots : f.tackles;
       return b && b.p >= floor ? { market: b.key, label: b.short, p: b.p } : null;
     }
     case "htdraw": return p.calHtDraw != null && p.calHtDraw >= f.htDraw ? { market: "ht_draw", label: "Draw at half-time", p: p.calHtDraw } : null;
@@ -173,6 +177,13 @@ export function scan(slug: ScannerSlug, p: MarketSource & { matrix?: unknown }, 
       ? { market: "no_run3", label: "No 3 goals in a row", p: p.calNoRun3 } : null;
     case "gg2": return p.calGg2 != null && p.calGg2 >= f.gg2
       ? { market: "gg2", label: "Both teams 2+ goals", p: p.calGg2 } : null;
+    case "nogg2": return p.calGg2 != null && 1 - p.calGg2 >= f.noGg2
+      ? { market: "no_gg2", label: "No GG2+", p: 1 - p.calGg2 } : null;
+    case "ms": {
+      // Both ways: the strongest set on either side, so an away favourite gets its away multiscore.
+      const b = allMarkets(p, "Home", "Away").filter((x) => x.group === "ms").sort((x, y) => y.p - x.p)[0];
+      return b && b.p >= f.ms ? { market: b.key, label: b.label, p: b.p } : null;
+    }
     case "blend": return oneXTwoPick(p);
   }
 }

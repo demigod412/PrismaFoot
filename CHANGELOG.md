@@ -1,5 +1,86 @@
 # Changelog
 
+## 0.24.0 — the daily rollover banker, No GG2+, multiscores, tackles, and Sportybet booking that books
+
+### Daily banker (`/banker`)
+Two slips a day for rollovers, and the game of the day:
+
+| | Target | Legs | Plan |
+| --- | --- | --- | --- |
+| 1.74 banker | 1.74 | at least 6 | rolled over four times a week |
+| 2.25 banker | 2.25 | at least 8 | played every day |
+| Game of the day | one pick | 1 | priced 1.20-1.60, High confidence first |
+
+Each is built once per day (`BANKER_TIMEZONE`, default `Africa/Lagos`) — at the first sync or page view
+that can make it — and **stored** in the new `DailyBanker` table, so a slip booked in the morning never
+changes when a later sync moves a probability. Only markets Sportybet books as one selection and that
+settle from the score; no leg above 1.45; Low-confidence calls never used. A Tomorrow tab previews the
+next day's slips (not stored).
+
+The page keeps a **rollover record**: every stored banker settled leg by leg (postponed legs void, as a
+bookmaker treats them), days won, rollover chains cashed and busted at 2, 3, 4, 5 or 7 steps, win
+streaks, and the expected chance of N in a row. Days before the banker was stored are rebuilt from the
+locked calls at fair odds and labelled `rebuilt`.
+
+**Honest probabilities.** A priced leg's chance is the model blended 50/50 with the bookmaker's
+(margin removed); an unpriced leg is priced at what a book would pay (`1 / (p × 1.06)`), not the fair
+`1 / p`. On simulated days (`npm run backtest:banker`) the raw model claimed ~75% for 1.74 slips that
+landed ~50%; blended, the claim is 56% against 50%. Picking the legs where the model is most above the
+bookmaker otherwise selects the model's own errors.
+
+**What the leg minimum costs.** Same simulation, same total odds:
+
+| | Won |
+| --- | --- |
+| 1.74, 6+ legs | 49.5% |
+| 1.74, 3+ legs | 52.5% |
+| 2.25, 8+ legs | 38.5% |
+| 2.25, 4+ legs | 44.0% |
+
+More legs never make a slip safer at the same price; they make each leg shorter. The minimums are as
+requested; this is why the record exists.
+
+### No GG2+
+`no_gg2` — not both teams to score two or more. Everywhere: match page, its own scanner and board
+entry, Top 50 (capped at 5 in the mixed list, like Under 4.5), Blend, the odds builder and the banker.
+Settles from the score.
+
+### Multiscores, both ways
+Six sets off the scoreline matrix: home 1-0/2-0/3-0, 2-0/2-1/3-0/3-1, 2-1/3-1/4-1 and the exact away
+mirrors. A `Multiscore` scanner shows each fixture's strongest set for whichever side the model favours.
+Shown on the match page, Top 50 (by name), Blend and slips; never picked automatically by the builder
+or banker (new `noAuto` flag — GG2+ moves to it from `scannerOnly`, so it is on the match page now too).
+
+### Total tackles
+Over/under ladders at each fixture's own line, rated like corners. Tackles come from API-Football's
+player statistics, so the stats backfill now uses **`/fixtures?ids=`: 20 matches per request** with
+statistics and players included. Corners and shots arrive twenty times faster for the same quota, and
+tackles with them. New `Fixture.homeTackles/awayTackles/detailFetched`; tackle markets appear per league
+once enough matches are backfilled.
+
+### Sportybet booking
+Why legs failed although the option was on Sportybet: the upcoming-events listing carries only each
+market's **main line**, so Over 1.5, Under 3.5, Under 4.5, half totals and every alternative corner line
+were "not offered", and the half-time 1X2 market was never requested at all.
+
+- Every matched event is re-read from Sportybet's event endpoint with its **full market list** (the
+  listing's markets kept as a fallback).
+- Outcome ids as well as names (1X2 1/2/3, double chance 9/10/11, totals 12/13, GG/NG 74/76), European
+  handicap as a fallback for win-by-2, multiscores matched by their exact score set, GG/NG 2+ by name.
+- Team names matched against the shorter name too ("Wolves" / "Wolverhampton Wanderers"), more aliases,
+  and a strict one-candidate fallback within 20 minutes of kickoff.
+- Retries; a failed page no longer throws away the matches already found; Sportybet's
+  `unavailableOutcomes` mapped back to the leg they belong to.
+- `npm run sportycheck -- <fixtureId>` (or `-- "Home" "Away"`) prints what Sportybet returns for a match
+  and what each market resolves to. Read-only. Run it on the server: Sportybet blocks many locations.
+
+### Also
+- The builder's per-match price buckets are 2.5% wide instead of 10%: every price from 1.05 to 1.16 used
+  to share one bucket, so a match offered a single short-priced market and long slips of short legs
+  failed inside the group limits.
+- After deploying, new predictions fill the multiscore columns at each league's next sync;
+  `npm run repredict` does it at once.
+
 ## 0.23.0 — the European cups sync again, the FA Cup and EFL Cup arrive, and cup ties are priced on one scale
 
 ### The Champions League, Europa League and Conference League had not synced since 0.14.1

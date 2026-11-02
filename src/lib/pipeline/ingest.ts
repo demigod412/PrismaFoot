@@ -7,6 +7,7 @@ import { PROVIDER_ENUM, THROTTLE_MS } from "../providers/constants";
 import { entryFor, feedsOf, LEAGUE_ALLOWLIST, POOL_SETTINGS } from "../leagues";
 import { FIXTURE_WINDOW_DAYS } from "../window";
 import { clearPoolCache, rateAndPredictLeague } from "./predict";
+import { ensureBankers } from "./banker";
 import { lockDue, refitCalibration, refreshMarketTrust, settle, snapshotAccuracy } from "./ledger";
 import { providerCalls } from "../providers/http";
 import { planRun } from "../syncOrder";
@@ -134,6 +135,7 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
     note(`sync starting: ${leagues.length} competitions (* = gets the capped stats/odds/injury budget)`);
     let done = 0;
     let injuryCalls = 0, statsCalls = 0, oddsCalls = 0;
+    let detailBroken = false; // the batched detail call failed this run: use the per-match statistics call instead
     const HISTORY_HOURS = Number(process.env.HISTORY_REFRESH_HOURS) || 24;
     const ODDS_CAP = Number(process.env.MAX_ODDS_CALLS) || 30;
     const STATS_CAP = Number(process.env.MAX_STATS_CALLS) || 30;
@@ -188,17 +190,42 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
       }
       await db.league.update({ where: { id: league.id }, data: { lastSyncAt: new Date(), ...(historyDue ? { historyAt: new Date() } : {}) } });
 
-      // Corners + total shots backfill (API-Football /fixtures/statistics: one request per match, newest first, capped per run)
+      // Corners, shots and tackles backfill, newest first, capped per run.
+      // API-Football's /fixtures?ids= returns statistics AND player stats for 20 matches per request, so
+      // one call does what twenty /fixtures/statistics calls did, and brings tackles with it.
       let stats = 0;
       if (p.id === "api-football" && major && statsCalls < STATS_CAP) {
-        const need = await db.fixture.findMany({ where: { leagueId: league.id, status: "FINISHED", statsFetched: false, kickoffUtc: { gte: addDays(now, -400) } }, orderBy: { kickoffUtc: "desc" }, take: STATS_CAP - statsCalls });
-        for (const f of need) {
-          try {
-            const st = await p.getStats(f.externalId);
-            await db.fixture.update({ where: { id: f.id }, data: { statsFetched: true, ...(st ? { homeCorners: st.homeCorners, awayCorners: st.awayCorners, ...(st.homeShots != null ? { homeShots: st.homeShots, awayShots: st.awayShots } : {}) } : {}) } });
-            stats++;
-          } catch (e) { errors.push(`stats: ${(e as Error).message}`); break; }
-          statsCalls++; await sleep(THROTTLE_MS[p.id]);
+        if (p.getDetails && !detailBroken) {
+          const need = await db.fixture.findMany({
+            where: { leagueId: league.id, status: "FINISHED", detailFetched: false, kickoffUtc: { gte: addDays(now, -400) } },
+            orderBy: { kickoffUtc: "desc" }, take: (STATS_CAP - statsCalls) * 20, select: { id: true, externalId: true },
+          });
+          for (let i = 0; i < need.length && statsCalls < STATS_CAP; i += 20) {
+            const chunk = need.slice(i, i + 20);
+            try {
+              const got = await p.getDetails(chunk.map((f) => f.externalId)); statsCalls++;
+              for (const f of chunk) {
+                const d = got.get(f.externalId);
+                await db.fixture.update({ where: { id: f.id }, data: { statsFetched: true, detailFetched: true, ...(d ? {
+                  ...(d.homeCorners != null ? { homeCorners: d.homeCorners, awayCorners: d.awayCorners } : {}),
+                  ...(d.homeShots != null ? { homeShots: d.homeShots, awayShots: d.awayShots } : {}),
+                  ...(d.homeTackles != null && d.awayTackles != null ? { homeTackles: d.homeTackles, awayTackles: d.awayTackles } : {}),
+                } : {}) } });
+                if (d) stats++;
+              }
+            } catch (e) { errors.push(`detail: ${(e as Error).message} (falling back to per-match statistics)`); detailBroken = true; break; }
+            await sleep(THROTTLE_MS[p.id]);
+          }
+        } else {
+          const need = await db.fixture.findMany({ where: { leagueId: league.id, status: "FINISHED", statsFetched: false, kickoffUtc: { gte: addDays(now, -400) } }, orderBy: { kickoffUtc: "desc" }, take: STATS_CAP - statsCalls });
+          for (const f of need) {
+            try {
+              const st = await p.getStats(f.externalId);
+              await db.fixture.update({ where: { id: f.id }, data: { statsFetched: true, ...(st ? { homeCorners: st.homeCorners, awayCorners: st.awayCorners, ...(st.homeShots != null ? { homeShots: st.homeShots, awayShots: st.awayShots } : {}) } : {}) } });
+              stats++;
+            } catch (e) { errors.push(`stats: ${(e as Error).message}`); break; }
+            statsCalls++; await sleep(THROTTLE_MS[p.id]);
+          }
         }
       }
       // Bookmaker odds for the value list and the market baseline (API-Football), capped per run
@@ -253,6 +280,8 @@ export async function ingest(db: PrismaClient, p: FootballProvider, opts: { now?
       marketTrust: await refreshMarketTrust(db, provider),
       accuracyDays: await snapshotAccuracy(db, provider),
     };
+    // Fix today's rollover bankers as soon as a sync has priced the day. Never allowed to fail the sync.
+    try { report.bankers = await ensureBankers(db, provider, new Date()); } catch (e) { report.bankers = `failed: ${(e as Error).message}`; }
     await db.syncLog.update({ where: { id: log.id }, data: { ok: true, finishedAt: new Date(), message: JSON.stringify(report).slice(0, 2000) } });
     return report;
   } catch (e) {

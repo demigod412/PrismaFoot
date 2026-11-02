@@ -259,3 +259,23 @@ export function noWinByTwo(m: Matrix): number {
   m.forEach((row, i) => row.forEach((q, j) => { if (Math.abs(i - j) <= 1) p += q; }));
   return p;
 }
+
+/**
+ * Multiscores: P(the final score is one of a set), straight off the matrix.
+ * Each home set has an exact away mirror (scores swapped), so "both ways" is one table.
+ */
+export const MULTISCORE_SETS = {
+  H10_20_30: [[1, 0], [2, 0], [3, 0]],
+  A01_02_03: [[0, 1], [0, 2], [0, 3]],
+  H20_21_30_31: [[2, 0], [2, 1], [3, 0], [3, 1]],
+  A02_12_03_13: [[0, 2], [1, 2], [0, 3], [1, 3]],
+  H21_31_41: [[2, 1], [3, 1], [4, 1]],
+  A12_13_14: [[1, 2], [1, 3], [1, 4]],
+} as const satisfies Record<string, readonly (readonly [number, number])[]>;
+export type MultiscoreSet = keyof typeof MULTISCORE_SETS;
+
+export function multiscores(m: number[][]): Record<MultiscoreSet, number> {
+  const out = {} as Record<MultiscoreSet, number>;
+  for (const k of Object.keys(MULTISCORE_SETS) as MultiscoreSet[]) out[k] = MULTISCORE_SETS[k].reduce((s, [h, a]) => s + (m[h]?.[a] ?? 0), 0);
+  return out;
+}

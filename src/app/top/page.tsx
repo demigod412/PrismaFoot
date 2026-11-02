@@ -6,7 +6,7 @@ import { phases } from "@/lib/timing";
 import { unstable_cache } from "next/cache";
 import { leagueLabel } from "@/lib/leagues";
 import { selectTop, tipHit, tipsFor, TOP_N, WINDOWS, CAPS, type Tip } from "@/lib/top";
-import { allMarkets, GROUP_LABEL, MARKET_OPTIONS, marketHit, parseSelector, selectorLabel, selectorMatches, type MarketGroup, type MarketKey } from "@/lib/markets";
+import { allMarkets, GROUP_LABEL, MARKET_OPTIONS, marketHit, parseSelector, selectorLabel, selectorMatches, type MarketGroup, type MarketKey, fixtureStats } from "@/lib/markets";
 import { flatStakeRoi, selectTopValue, valueTips, VALUE, type ValueTip, VALUE_CEILINGS } from "@/lib/value";
 import { quoteFor, type QuoteMap } from "@/lib/odds";
 import { dayBuckets, dayKeyIn, dayStart, fmtIn, fmtUtc } from "@/lib/time";
@@ -173,7 +173,7 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
         if (bucket) bucket.push(f); else byDay.set(k, [f]);
       }
       const recordDays: Day[] = [...byDay.entries()].sort(([a], [b]) => b.localeCompare(a)).map(([day, fs]) => {
-        const res = (f: (typeof fs)[number]) => ({ h: f.homeGoals!, a: f.awayGoals!, hc: f.homeCorners, ac: f.awayCorners, hs: f.homeShots, as: f.awayShots, hh: f.htHome, ha: f.htAway });
+        const res = (f: (typeof fs)[number]) => ({ h: f.homeGoals!, a: f.awayGoals!, ...fixtureStats(f), hh: f.htHome, ha: f.htAway });
         const lines = (f: (typeof fs)[number]) => ({ corners: f.predictions[0].cornersLine, shots: f.predictions[0].shotsLine });
         if (list === "likely") {
           const scored = selectTop(fs.map((f) => ({ item: f, id: f.id, startMs: f.kickoffUtc.getTime(), tips: tipsFor(f.predictions[0], f.homeTeam.name, f.awayTeam.name, sel) })), sel)
@@ -220,7 +220,7 @@ export default async function Top({ searchParams }: { searchParams: Promise<{ da
         <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">{list === "likely" ? `Top ${TOP_N} tips` : "Best value"}</h1>
         <p className="mt-1 max-w-2xl text-sm text-slate-400">
           {list === "likely"
-            ? <>The strongest single tip from each match, ranked by model probability with a small boost for confidence. Medium or High confidence only. In the mixed list at most {CAPS.dc} double chance, {CAPS.under45} Under 4.5 and {CAPS.hcp} win-by-2 tips appear. A 75% tip still loses one time in four.</>
+            ? <>The strongest single tip from each match, ranked by model probability with a small boost for confidence. Medium or High confidence only. In the mixed list at most {CAPS.dc} double chance, {CAPS.under45} Under 4.5 and {CAPS.hcp} win-by-2 and {CAPS.noGg2} No GG2+ tips appear. A 75% tip still loses one time in four.</>
             : <>Tips where the model rates the outcome more likely than the bookmaker&apos;s price implies. Edge = model probability × odds − 1. Needs odds ≥ {VALUE.minOdds.toFixed(2)}, probability ≥ {Math.round(VALUE.minP * 100)}% and edge ≥ {Math.round(VALUE.minEdge * 100)}%. Value tips lose more often than &ldquo;most likely&rdquo; tips; the point is the price. ★ marks standout value: High confidence, 50%+, and an edge of 8% or more.</>}
         </p>
       </header>

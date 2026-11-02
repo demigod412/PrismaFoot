@@ -6,7 +6,7 @@ import { fmtIn, fmtUtc, tzOffsetLabel } from "@/lib/time";
 import { tz } from "@/lib/tz";
 import { ProbBar } from "@/components/ProbBar";
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
-import { allMarkets, marketHit, GROUP_LABEL, type MarketGroup } from "@/lib/markets";
+import { allMarkets, marketHit, GROUP_LABEL, type MarketGroup, fixtureStats } from "@/lib/markets";
 import { leagueLabel } from "@/lib/leagues";
 import { TOP_N } from "@/lib/top";
 import { bestTip } from "@/lib/top";
@@ -51,9 +51,8 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
   const qmap: QuoteMap = {};
   for (const q of quotes) qmap[q.market as MarketKey] ??= { odds: q.odds, best: q.best, books: q.books }; // newest first
   const values = p ? valueTips(p, qmap, fx.homeTeam.shortName ?? fx.homeTeam.name, fx.awayTeam.shortName ?? fx.awayTeam.name).slice(0, 3) : [];
-  // Scanner-only markets are excluded here: see MarketTip.scannerOnly for why a rare market is browsed
-  // rather than presented.
-  const markets = p ? allMarkets(p, fx.homeTeam.shortName ?? fx.homeTeam.name, fx.awayTeam.shortName ?? fx.awayTeam.name).filter((m) => !m.scannerOnly) : [];
+  // Every market, long prices included (GG2+, multiscores): they are labelled with their probability.
+  const markets = p ? allMarkets(p, fx.homeTeam.shortName ?? fx.homeTeam.name, fx.awayTeam.shortName ?? fx.awayTeam.name) : [];
   const tip = p ? bestTip(p, fx.homeTeam.shortName ?? fx.homeTeam.name, fx.awayTeam.shortName ?? fx.awayTeam.name) : null;
   return (
     <article>
@@ -181,7 +180,7 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
                     <div className="pt-2">{rows.length ? (
                       <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
                         {rows.map((m) => {
-                          const h = done ? marketHit(m.key, { h: fx.homeGoals!, a: fx.awayGoals!, hc: fx.homeCorners, ac: fx.awayCorners, hs: fx.homeShots, as: fx.awayShots, hh: fx.htHome, ha: fx.htAway }, { corners: p.cornersLine, shots: p.shotsLine }) : null;
+                          const h = done ? marketHit(m.key, { h: fx.homeGoals!, a: fx.awayGoals!, ...fixtureStats(fx), hh: fx.htHome, ha: fx.htAway }, { corners: p.cornersLine, shots: p.shotsLine }) : null;
                           return (
                             <div key={m.key} className={cn("rounded-lg border px-2.5 py-1.5", tip?.key === m.key ? "border-edge/50 bg-edge/10" : "hairline bg-white/[0.02]")}>
                               <div className="flex items-start justify-between gap-1">

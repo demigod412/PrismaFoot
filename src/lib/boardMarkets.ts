@@ -24,11 +24,12 @@ export const BOARD_MARKETS: { slug: ScannerSlug; label: string; group: string }[
   { slug: "2plus", label: "2+ total goals", group: "Goals" },
   { slug: "1plus", label: "A team to score 1+", group: "Goals" }, { slug: "team2", label: "A team to score 2+", group: "Goals" },
   { slug: "gg2", label: "Both teams 2+ (GG2+)", group: "Goals" },
+  { slug: "nogg2", label: "No GG2+", group: "Goals" }, { slug: "ms", label: "Multiscore", group: "Goals" },
   { slug: "h1u15", label: "1st half Under 1.5", group: "Halves" }, { slug: "h1u25", label: "1st half Under 2.5", group: "Halves" },
   { slug: "h2u25", label: "2nd half Under 2.5", group: "Halves" }, { slug: "htdraw", label: "Half-time draw", group: "Halves" },
   { slug: "nobothhalves", label: "Not both halves O1.5", group: "Halves" },
   { slug: "norun3", label: "No 3 goals in a row", group: "Shape" },
-  { slug: "corners", label: "Corners", group: "Stats" }, { slug: "shots", label: "Total shots", group: "Stats" },
+  { slug: "corners", label: "Corners", group: "Stats" }, { slug: "shots", label: "Total shots", group: "Stats" }, { slug: "tackles", label: "Total tackles", group: "Stats" },
   { slug: "safe", label: "Safe picks", group: "Other" },
 ];
 /** Exported for the test that holds this list to the scanner list. */

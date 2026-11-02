@@ -1,16 +1,16 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, LayoutGrid, Radar, Ticket, Menu, LineChart, BookOpen, Settings, Trophy, Calculator } from "lucide-react";
+import { CalendarDays, LayoutGrid, Radar, Ticket, Menu, LineChart, BookOpen, Settings, Trophy, Calculator, ShieldCheck } from "lucide-react";
 import { cn } from "./ui";
 
 const TABS = [
   { href: "/", label: "Fixtures", icon: CalendarDays, match: (p: string) => p === "/" || p.startsWith("/fixtures") || p.startsWith("/match") },
   { href: "/top", label: "Top 50", icon: Trophy, match: (p: string) => p.startsWith("/top") },
-  { href: "/builder", label: "Builder", icon: Calculator, match: (p: string) => p.startsWith("/builder") },
+  { href: "/banker", label: "Banker", icon: ShieldCheck, match: (p: string) => p.startsWith("/banker") },
   { href: "/scanner", label: "Scanners", icon: Radar, match: (p: string) => p.startsWith("/scanner") },
   { href: "/slips", label: "Slips", icon: Ticket, match: (p: string) => p.startsWith("/slips") },
-  { href: "/more", label: "More", icon: Menu, match: (p: string) => ["/more", "/accuracy", "/methodology", "/settings", "/league"].some((x) => p.startsWith(x)) },
+  { href: "/more", label: "More", icon: Menu, match: (p: string) => ["/more", "/builder", "/accuracy", "/methodology", "/settings", "/league"].some((x) => p.startsWith(x)) },
 ];
 
 export function BottomTabs() {
@@ -52,6 +52,7 @@ export function LeftRail({ leagues }: { leagues: { id: string; name: string; cou
         {item("/", "Fixtures", CalendarDays, path === "/" || path.startsWith("/fixtures"))}
         {item("/top", "Top 50 tips", Trophy, path.startsWith("/top"))}
         {item("/leagues", "Leagues", LayoutGrid, path.startsWith("/leagues"))}
+        {item("/banker", "Daily banker", ShieldCheck, path.startsWith("/banker"))}
         {item("/builder", "Odds builder", Calculator, path.startsWith("/builder"))}
         {item("/scanner", "Scanners", Radar, path.startsWith("/scanner"))}
         {item("/slips", "Slips", Ticket, path.startsWith("/slips"))}

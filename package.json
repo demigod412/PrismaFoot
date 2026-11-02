@@ -1,6 +1,6 @@
 {
   "name": "pitchedge",
-  "version": "0.23.0",
+  "version": "0.24.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -19,7 +19,9 @@
     "diagnose": "node --env-file=.env --conditions=react-server --import tsx scripts/diagnose.ts",
     "repredict": "node --max-old-space-size=640 --env-file=.env --conditions=react-server --import tsx scripts/repredict.ts",
     "prune": "node --env-file=.env --conditions=react-server --import tsx scripts/prune.ts",
-    "oddscheck": "node --env-file=.env --conditions=react-server --import tsx scripts/oddscheck.ts"
+    "oddscheck": "node --env-file=.env --conditions=react-server --import tsx scripts/oddscheck.ts",
+    "sportycheck": "node --env-file=.env --conditions=react-server --import tsx scripts/sportycheck.ts",
+    "backtest:banker": "tsx scripts/backtest-banker.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

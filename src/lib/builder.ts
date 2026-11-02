@@ -127,7 +127,10 @@ function search(all: Candidate[], o: BuildOptions, want: number, widen: number, 
   };
   // Build a pool that is spread across BOTH matches and price levels. Taking a plain "top N" would fill up with
   // many markets from the same few matches, and the search would run out of matches long before it reached a long target.
-  const priceBucket = (c: Candidate) => Math.round(Math.log(c.odds) * 10);
+  // Buckets 2.5% of price wide. They were 10% wide, which put every price from 1.05 to 1.16 in ONE bucket,
+  // so a match offered a single short-priced market and a many-leg slip of short legs (the daily banker,
+  // or 3.00 over 10 legs) ran out of combinations inside the group limits.
+  const priceBucket = (c: Candidate) => Math.round(Math.log(c.odds) * 40);
   const perMatch = new Map<string, Candidate[]>();
   for (const c of [...pool].sort((a, b) => rank(b) - rank(a))) {
     const rows = perMatch.get(c.matchId) ?? [];

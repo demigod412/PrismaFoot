@@ -1,5 +1,5 @@
 import { LOW_BAND_DISPLAY_CAP, MODEL_VERSION } from "./constants";
-import { marketsFromMatrix, scoreMatrix, topScorelines, truncateMatrix, winByAtLeast, type Markets, type Scoreline, halfUnders, halfTimeResult, winOrOver, noThreeInARow, notBothHalvesOver15, noWinByTwo, bothTeamsAtLeast } from "./dixonColes";
+import { marketsFromMatrix, scoreMatrix, topScorelines, truncateMatrix, winByAtLeast, type Markets, type Scoreline, halfUnders, halfTimeResult, winOrOver, noThreeInARow, notBothHalvesOver15, noWinByTwo, bothTeamsAtLeast, multiscores, type MultiscoreSet } from "./dixonColes";
 import { priorRating, type LeagueFit, type TeamRating } from "./ratings";
 import { apply, calibrate1x2, IDENTITY_SET, type CalibratorSet } from "./calibration";
 import { confidenceScore, type Band } from "./confidence";
@@ -36,6 +36,8 @@ export interface PredictOutput {
    * scaling a different quantity by them would be worse than stating the model's own number.
    */
   shapes: { noRun3: number; noBothHalvesOver15: number; noWinBy2: number; gg2: number };
+  /** Multiscores off the matrix, uncalibrated and never clamped (they are long prices by nature, like GG2+). */
+  multi: Record<MultiscoreSet, number>;
   winOrOver: { raw: { home: number; away: number }; cal: { home: number; away: number } };
   predHomeGoals: number; predAwayGoals: number;
   topScorelines: Scoreline[];
@@ -157,7 +159,7 @@ export function predictFixture(inp: PredictInput): PredictOutput {
   return {
     modelVersion: MODEL_VERSION,
     inputsHash: inputsHash({ homeId: inp.homeId, awayId: inp.awayId, kickoff: inp.kickoff.toISOString(), ...features, calN: cs.home.n }),
-    lambdaHome, lambdaAway, rho, raw, cal, rawBy2, calBy2, halves, shapes, winOrOver: { raw: { home: wo.home, away: wo.away }, cal: cWo },
+    lambdaHome, lambdaAway, rho, raw, cal, rawBy2, calBy2, halves, shapes, multi: multiscores(m), winOrOver: { raw: { home: wo.home, away: wo.away }, cal: cWo },
     predHomeGoals: top[0].h, predAwayGoals: top[0].a,
     topScorelines: top, matrix: truncateMatrix(m), confidence: score, band,
     dataFlags: flags, rationale, features,

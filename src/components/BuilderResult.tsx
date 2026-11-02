@@ -10,7 +10,14 @@ export interface BuilderLeg { fixtureId: string; market: string; label: string; 
 export interface BuilderSlip { odds: number; p: number; adjusted: number; edge: number; real: boolean; legs: BuilderLeg[] }
 
 /** One generated combination: legs, price, honest chance, and the three ways to use it. */
-export function BuilderResult({ slip, index, target }: { slip: BuilderSlip; index: number; target: number }) {
+type LegState = "won" | "lost" | "void" | "pending";
+const STATE_STYLE: Record<LegState, string> = { won: "text-edge", lost: "text-miss", void: "text-slate-500", pending: "text-slate-500" };
+
+/**
+ * `title` replaces the "Best combination" heading (the daily banker uses it); `states` marks each leg won,
+ * lost, void or pending, keyed by fixtureId, once a stored slip's matches start finishing.
+ */
+export function BuilderResult({ slip, index, target, title, states, unpriced = "fair" }: { slip: BuilderSlip; index: number; target: number; title?: string; states?: Record<string, LegState>; unpriced?: string }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [booking, setBooking] = useState<BookResult | null>(null);
   const [pending, start] = useTransition();
@@ -26,7 +33,7 @@ export function BuilderResult({ slip, index, target }: { slip: BuilderSlip; inde
   return (
     <section className={cn("glass p-4", index === 0 && "border-edge/40")}>
       <header className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-sm font-medium">{index === 0 ? "Best combination" : `Alternative ${index}`} <span className="num text-slate-500">{slip.legs.length} legs</span></h2>
+        <h2 className="text-sm font-medium">{title ?? (index === 0 ? "Best combination" : `Alternative ${index}`)} <span className="num text-slate-500">{slip.legs.length} legs</span></h2>
         <div className="num text-right text-sm">
           <span className="text-edge">{slip.odds.toFixed(2)}</span> <span className="text-slate-500">odds</span>
           <span className="ml-3 text-slate-300">{pct(slip.adjusted)}</span> <span className="text-slate-500">chance · about 1 in {oneIn}</span>
@@ -49,8 +56,9 @@ export function BuilderResult({ slip, index, target }: { slip: BuilderSlip; inde
               {l.unverifiable && <div className="text-[11px] text-amber">This leg can never be scored — the slip will show it as unknown once the match finishes.</div>}
             </div>
             <div className="num text-right text-xs">
+              {states?.[l.fixtureId] && <div className={cn("text-[10px] uppercase tracking-wide", STATE_STYLE[states[l.fixtureId]])}>{states[l.fixtureId]}</div>}
               <div className="text-slate-200">{pct(l.p)}</div>
-              <div className={cn("text-[10px]", l.real ? "text-edge" : "text-slate-500")}>{l.real ? `@${l.odds.toFixed(2)}` : `fair ${l.odds.toFixed(2)}`}</div>
+              <div className={cn("text-[10px]", l.real ? "text-edge" : "text-slate-500")}>{l.real ? `@${l.odds.toFixed(2)}` : `${unpriced} ${l.odds.toFixed(2)}`}</div>
             </div>
           </li>
         ))}

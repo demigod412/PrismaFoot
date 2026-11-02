@@ -42,12 +42,12 @@ export const WINDOWS = [1, 2, 3, 4, 5, 6, 7] as const;
  * would never out-rank an Over 1.5 anyway, and listing it by accident rather than by choice is the wrong
  * way for a long shot to reach anyone.
  */
-const EXCLUDED: MarketKey[] = ["draw", "no_run3", "gg2"];
+const EXCLUDED: MarketKey[] = ["draw", "no_run3", "gg2", "ms_h10_20_30", "ms_a01_02_03", "ms_h20_21_30_31", "ms_a02_12_03_13", "ms_h21_31_41", "ms_a12_13_14"];
 
 /** Max tips per capped category in the mixed list. */
-export const CAPS = { dc: 5, under45: 5, hcp: 5, halfU25: 2 } as const;
+export const CAPS = { dc: 5, under45: 5, hcp: 5, halfU25: 2, noGg2: 5 } as const;
 type CapKey = keyof typeof CAPS;
-const capOf = (t: MarketTip): CapKey | null => (t.group === "dc" ? "dc" : t.key === "under45" ? "under45" : t.group === "hcp" ? "hcp" : t.key === "h1_under25" || t.key === "h2_under25" ? "halfU25" : null);
+const capOf = (t: MarketTip): CapKey | null => (t.group === "dc" ? "dc" : t.key === "no_gg2" ? "noGg2" : t.key === "under45" ? "under45" : t.group === "hcp" ? "hcp" : t.key === "h1_under25" || t.key === "h2_under25" ? "halfU25" : null);
 
 export interface Tip extends MarketTip { strength: number }
 export type TipMarket = MarketKey;
@@ -71,7 +71,7 @@ export function tipsFor(p: MarketSource, home: string, away: string, sel?: Marke
   const named = selectorKey(sel);
   // An explicit ask overrides the exclusion — except for the unscoreable one, which has no business in
   // a ranked list however deliberately it is requested.
-  const asksForLines = named === "corners_over" || named === "corners_under" || named === "shots_over" || named === "shots_under";
+  const asksForLines = !!named && /^(corners|shots|tackles)_(over|under)$/.test(named);
   return allMarkets(p, home, away)
     .filter((m) => (!EXCLUDED.includes(m.key) || (named === m.key && !m.unverifiable))
       && (!m.alt || m.strong || asksForLines)
@@ -85,7 +85,7 @@ export function tipsFor(p: MarketSource, home: string, away: string, sel?: Marke
  * Double chance, Under 4.5, 1st-half Under 2.5 and 2nd-half Under 2.5 are never the headline pick: they would head almost every match.
  * They stay visible in the match's "All markets" card and (capped) in the Top 50.
  */
-export const HEADLINE_EXCLUDED = (t: MarketTip) => t.group === "dc" || t.key === "under45" || t.key === "h1_under25" || t.key === "h2_under25";
+export const HEADLINE_EXCLUDED = (t: MarketTip) => t.group === "dc" || t.key === "under45" || t.key === "no_gg2" || t.key === "h1_under25" || t.key === "h2_under25";
 export function bestTip(p: MarketSource, home: string, away: string, sel?: MarketSelector): Tip | null {
   return tipsFor(p, home, away, sel).find((t) => sel || !HEADLINE_EXCLUDED(t)) ?? null;
 }
@@ -97,7 +97,7 @@ export function bestTip(p: MarketSource, home: string, away: string, sel?: Marke
 export function selectTop<T>(items: { item: T; id: string; tips: Tip[]; startMs: number }[], sel?: MarketSelector, n = TOP_N): { item: T; tip: Tip }[] {
   const pairs = items.flatMap((x) => x.tips.map((tip) => ({ x, tip })))
     .sort((a, b) => b.tip.strength - a.tip.strength || a.x.startMs - b.x.startMs);
-  const used = new Set<string>(), count: Record<CapKey, number> = { dc: 0, under45: 0, hcp: 0, halfU25: 0 };
+  const used = new Set<string>(), count: Record<CapKey, number> = { dc: 0, under45: 0, hcp: 0, halfU25: 0, noGg2: 0 };
   const out: { item: T; tip: Tip }[] = [];
   for (const { x, tip } of pairs) {
     if (out.length >= n) break;

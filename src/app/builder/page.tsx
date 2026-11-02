@@ -2,7 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { dataMode } from "@/lib/mode";
 import { BUILDER_LIMIT, getBoard, latestQuotes } from "@/lib/queries";
-import { allMarkets, GROUP_LABEL, marketHit, type MarketKey } from "@/lib/markets";
+import { allMarkets, GROUP_LABEL, marketHit, type MarketKey, fixtureStats } from "@/lib/markets";
 import { buildSlips, legHint, oneInN, SAFE_MAX_LEG_ODDS, type Candidate } from "@/lib/builder";
 import { getSetting } from "@/lib/secrets";
 import { leagueLabel } from "@/lib/leagues";
@@ -68,7 +68,7 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
     const H = f.homeTeam.shortName ?? f.homeTeam.name, A = f.awayTeam.shortName ?? f.awayTeam.name;
     // Scanner-only markets are left out: a slip search chasing a high target would fill itself with
     // them, since a rare market is the longest honest price available.
-    return allMarkets(p, H, A).filter((m) => !m.scannerOnly).map((m) => {
+    return allMarkets(p, H, A).filter((m) => !m.scannerOnly && !m.noAuto).map((m) => {
       const price = q.get(m.key);
       return {
         matchId: f.id, league: leagueLabel(f.league), startMs: +f.kickoffUtc, match: `${H} v ${A}`, label: m.label, market: m.key,
@@ -116,13 +116,13 @@ export default async function Builder({ searchParams }: { searchParams: Promise<
       const cands: Candidate[] = ps.flatMap((x) => {
         const H = x.fixture.homeTeam.shortName ?? x.fixture.homeTeam.name, A = x.fixture.awayTeam.shortName ?? x.fixture.awayTeam.name;
         // The same exclusion as the live builder above, or this record would not describe it.
-        return allMarkets(x, H, A).filter((m) => !m.scannerOnly).map((m) => ({ matchId: x.fixtureId, league: leagueLabel(x.fixture.league), startMs: +x.fixture.kickoffUtc, match: `${H} v ${A}`,
+        return allMarkets(x, H, A).filter((m) => !m.scannerOnly && !m.noAuto).map((m) => ({ matchId: x.fixtureId, league: leagueLabel(x.fixture.league), startMs: +x.fixture.kickoffUtc, match: `${H} v ${A}`,
           label: m.label, market: m.key, group: m.group, p: m.p, odds: 1 / m.p, real: false, band: x.band }));
       });
       const [built] = buildSlips(cands, { target, maxLegs, minLegs, mode: "safe", band: "LOW", maxLegOdds: legCap, evenLegs }, 1);
       if (!built) return [];
       const res = (id: string) => { const f = ps.find((x) => x.fixtureId === id)!.fixture, r = f.results[0];
-        return { h: r.homeGoals, a: r.awayGoals, hc: f.homeCorners, ac: f.awayCorners, hs: f.homeShots, as: f.awayShots, hh: r.htHome, ha: r.htAway }; };
+        return { h: r.homeGoals, a: r.awayGoals, ...fixtureStats(f), hh: r.htHome, ha: r.htAway }; };
       const legs = built.legs.map((l) => marketHit(l.market as MarketKey, res(l.matchId)));
       if (legs.some((h) => h == null)) return [];
       return [{ day, legs: built.legs.length, odds: built.odds, won: legs.every(Boolean), hits: legs.filter(Boolean).length }];

@@ -34,6 +34,12 @@ export interface FootballProvider {
   /** Corners + total shots for a finished match. null = provider/plan has no match statistics. */
   getStats(fixtureId: string): Promise<PStats | null>;
   /**
+   * Full detail for up to 20 finished fixtures in ONE request (API-Football /fixtures?ids=): corners and
+   * shots from the team statistics, tackles summed over each side's players. Fixtures the provider sent
+   * nothing for are simply absent from the map.
+   */
+  getDetails?(fixtureIds: string[]): Promise<Map<string, PDetail>>;
+  /**
    * The odds response for one fixture, unparsed.
    *
    * Only used by `npm run oddscheck`, to show which bet names the feed actually offers. The parsed path
@@ -44,3 +50,4 @@ export interface FootballProvider {
   getLeagueOdds?(leagueId: string, season: number, page: number): Promise<{ items: { fixtureExt: string; quotes: import("../odds").QuoteMap }[]; pages: number } | null>;
   testConnection(): Promise<{ ok: boolean; message: string }>;
 }
+export interface PDetail { homeCorners: number | null; awayCorners: number | null; homeShots: number | null; awayShots: number | null; homeTackles: number | null; awayTackles: number | null }

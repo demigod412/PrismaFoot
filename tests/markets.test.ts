@@ -22,6 +22,8 @@ const pred = (over: Partial<Prediction> = {}) => ({
   cornerLines: [{ l: 8.5, o: 0.78 }, { l: 10.5, o: 0.55 }, { l: 12.5, o: 0.3 }],
   shotsLine: 25.5, calShotsOver: 0.52,
   shotLines: [{ l: 23.5, o: 0.66 }, { l: 25.5, o: 0.52 }],
+  tacklesLine: 33.5, calTacklesOver: 0.55, tackleLines: [{ l: 31.5, o: 0.7 }, { l: 33.5, o: 0.55 }],
+  calMsH10_20_30: 0.27, calMsA01_02_03: 0.09, calMsH20_21_30_31: 0.31, calMsA02_12_03_13: 0.08, calMsH21_31_41: 0.15, calMsA12_13_14: 0.05,
   band: "HIGH", confidence: 80,
   ...over,
 }) as unknown as Prediction;
@@ -34,7 +36,7 @@ describe("every market in the project is selectable", () => {
    */
   it("offers an option for every market the catalogue can produce", () => {
     const produced = new Set(allMarkets(pred(), "Home", "Away").map((m) => {
-      const parts = /^(corners|shots)_(over|under)@/.exec(m.key);
+      const parts = /^(corners|shots|tackles)_(over|under)@/.exec(m.key);
       return parts ? `${parts[1]}_${parts[2]}` : m.key;
     }));
     const offered = new Set(MARKET_OPTIONS.map((o) => o.value.slice(2)));
@@ -327,11 +329,12 @@ describe("GG2+ (both teams to score two or more)", () => {
     expect(marketHit("gg2", { h: 0, a: 0 })).toBe(false);
   });
 
-  it("is offered in the catalogue but kept off the match page and out of the builder", () => {
+  it("is offered everywhere but never picked automatically by the builder or the banker", () => {
     const tip = allMarkets(pred(), "Home", "Away").find((m) => m.key === "gg2");
     expect(tip).toBeDefined();
-    // The match page and the builder both filter on this flag.
-    expect(tip!.scannerOnly).toBe(true);
+    // Shown on the match page since 0.24.0; the builder and the banker filter on this flag.
+    expect(tip!.noAuto).toBe(true);
+    expect(tip!.scannerOnly).toBeUndefined();
     expect(tip!.unverifiable).toBeUndefined();
     expect(MARKET_OPTIONS.some((o) => o.value === "k:gg2")).toBe(true);
   });
@@ -378,5 +381,64 @@ describe("every market is reachable from every surface that offers markets", () 
     for (const k of ["o15", "o25", "o35", "u25", "u35", "u45", "btts", "bttsNo", "by2", "noWinBy2", "noBothHalves", "noRun3", "gg2"]) {
       expect(floors, `DEFAULT_FLOORS.${k}`).toContain(k);
     }
+  });
+});
+
+import { candidatesFor } from "@/lib/candidates";
+import { scan, DEFAULT_FLOORS as FLOORS } from "@/lib/scanners";
+import { multiscores } from "@/lib/model/dixonColes";
+
+describe("No GG2+", () => {
+  it("is the exact complement of GG2+, settles from the score, and is a normal (auto-pickable) market", () => {
+    const tip = allMarkets(pred(), "H", "A").find((m) => m.key === "no_gg2")!;
+    expect(tip.p).toBeCloseTo(0.86, 12);
+    expect(tip.noAuto).toBeUndefined();
+    expect(marketHit("no_gg2", { h: 2, a: 2 })).toBe(false);
+    expect(marketHit("no_gg2", { h: 3, a: 1 })).toBe(true);
+    expect(marketHit("no_gg2", { h: 0, a: 0 })).toBe(true);
+    expect(candidatesFor({ id: "f", kickoffUtc: new Date(), home: "H", away: "A", league: "L" }, pred()).some((c) => c.market === "no_gg2")).toBe(true);
+  });
+  it("has a scanner and a board entry, and can be ranked by name in the Top 50", () => {
+    expect(scan("nogg2", pred(), FLOORS)?.market).toBe("no_gg2");
+    expect(BOARD_MARKET_SLUGS).toContain("nogg2");
+    expect(tipsFor(pred(), "H", "A", "k:no_gg2").map((t) => t.key)).toEqual(["no_gg2"]);
+  });
+});
+
+describe("multiscores", () => {
+  it("are read off the matrix, mirror home and away, and settle from the score", () => {
+    const m = scoreMatrix(2.1, 0.8, -0.08);
+    const ms = multiscores(m);
+    expect(ms.H10_20_30).toBeCloseTo(m[1][0] + m[2][0] + m[3][0], 12);
+    expect(ms.H10_20_30).toBeGreaterThan(ms.A01_02_03); // home favourite
+    const mirror = multiscores(scoreMatrix(0.8, 2.1, -0.08));
+    expect(mirror.A01_02_03).toBeGreaterThan(mirror.H10_20_30); // away favourite gets the away set
+    expect(marketHit("ms_h20_21_30_31", { h: 2, a: 1 })).toBe(true);
+    expect(marketHit("ms_h20_21_30_31", { h: 1, a: 0 })).toBe(false);
+    expect(marketHit("ms_a02_12_03_13", { h: 1, a: 3 })).toBe(true);
+  });
+  it("show everywhere but are never auto-picked, and the scanner takes the strongest side", () => {
+    const tips = allMarkets(pred(), "Arsenal", "Chelsea").filter((m) => m.group === "ms");
+    expect(tips).toHaveLength(6);
+    expect(tips.every((t) => t.noAuto)).toBe(true);
+    expect(tips.find((t) => t.key === "ms_h10_20_30")!.label).toBe("Arsenal 1-0/2-0/3-0");
+    expect(scan("ms", pred(), FLOORS)?.market).toBe("ms_h20_21_30_31");
+    expect(scan("ms", pred({ calMsA02_12_03_13: 0.4 } as never), FLOORS)?.market).toBe("ms_a02_12_03_13");
+    expect(candidatesFor({ id: "f", kickoffUtc: new Date(), home: "H", away: "A", league: "L" }, pred()).some((c) => c.market.startsWith("ms_"))).toBe(false);
+    // Kept out of the mixed Top 50, ranked when named.
+    expect(tipsFor(pred(), "H", "A").some((t) => t.group === "ms")).toBe(false);
+    expect(tipsFor(pred(), "H", "A", "k:ms_h10_20_30")).toHaveLength(1);
+  });
+});
+
+describe("tackles", () => {
+  it("are line markets that settle from the stored team tackles", () => {
+    const rows = allMarkets(pred(), "H", "A").filter((m) => m.group === "tackles");
+    expect(rows.map((r) => r.key)).toContain("tackles_over@33.5");
+    expect(marketHit("tackles_over@33.5", { h: 1, a: 0, tk: 18, tka: 17 })).toBe(true);
+    expect(marketHit("tackles_under@33.5", { h: 1, a: 0, tk: 18, tka: 17 })).toBe(false);
+    expect(marketHit("tackles_over@33.5", { h: 1, a: 0 })).toBeNull(); // no tackles stored
+    expect(scan("tackles", pred(), FLOORS)?.market).toBe("tackles_over@31.5");
+    expect(parseSelector("k:tackles_over")).toBe("k:tackles_over");
   });
 });
